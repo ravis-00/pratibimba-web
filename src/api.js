@@ -1,12 +1,14 @@
 import axios from 'axios';
-import { auth } from './firebase';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL;
 
 const apiClient = async (path, method = 'GET', data = {}) => {
-  const user = auth.currentUser;
+  // GET USER FROM LOCAL STORAGE INSTEAD OF FIREBASE
+  const storedUser = localStorage.getItem('user');
   
-  if (!user) throw new Error("User not logged in");
+  if (!storedUser) throw new Error("User not logged in");
+  
+  const user = JSON.parse(storedUser);
 
   const payload = {
     ...data,

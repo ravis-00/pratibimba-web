@@ -1,46 +1,68 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from './firebase';
+import MainLayout from './components/MainLayout';
 import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
 
-// Placeholder for Dashboard (We will build this next)
-const Dashboard = () => (
-  <div className="p-10">
-    <h1 className="text-2xl font-bold text-green-600">Welcome to Pratibimba!</h1>
-    <p>You are successfully logged in.</p>
-    <button onClick={() => auth.signOut()} className="mt-4 bg-red-500 text-white px-4 py-2 rounded">
-      Logout
-    </button>
-  </div>
-);
+// ✅ CORRECT IMPORTS (Matches your renamed files)
+import PlannedAudits from './pages/PlannedAudits';   
+import ScheduledAudits from './pages/ScheduledAudits'; 
+import OpenReports from './pages/OpenReports';
+
+// Placeholder Forms (We will build these next)
+const AuditPlanForm = () => <div className="p-10">Form: Create New Audit Plan</div>;
+const ScheduleAuditForm = () => <div className="p-10">Form: Schedule an Audit</div>;
+const Checklist = () => <div className="p-10">Form: Audit Checklist & Execution</div>;
 
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Listen for login state changes
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setLoading(false);
-    });
-    return () => unsubscribe();
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) setUser(JSON.parse(storedUser));
+    setLoading(false);
   }, []);
 
-  if (loading) return <div className="h-screen flex items-center justify-center">Loading...</div>;
+  const handleLogout = () => {
+    localStorage.removeItem('user');
+    setUser(null);
+    window.location.href = "/login";
+  };
+
+  if (loading) return <div>Loading...</div>;
 
   return (
     <BrowserRouter>
       <Routes>
-        <Route 
-          path="/login" 
-          element={!user ? <Login /> : <Navigate to="/" />} 
-        />
-        <Route 
-          path="/" 
-          element={user ? <Dashboard /> : <Navigate to="/login" />} 
-        />
+        <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
+        
+        {/* Protected Routes wrapped in MainLayout */}
+        {user && (
+          <Route element={<MainLayout user={user} onLogout={handleLogout} />}>
+            
+            {/* 1. Dashboard */}
+            <Route path="/" element={<Dashboard />} />
+            
+            {/* 2. Audit Planning Module */}
+            <Route path="/planning" element={<PlannedAudits />} />
+            <Route path="/planning/new" element={<AuditPlanForm />} />
+            <Route path="/planning/schedule/:id" element={<ScheduleAuditForm />} />
+
+            {/* 3. Scheduled Audits Module */}
+            <Route path="/scheduled" element={<ScheduledAudits />} />
+            
+            {/* 4. Execution Module */}
+            <Route path="/audit/:id/checklist" element={<Checklist />} />
+
+            {/* 5. Reports Module */}
+            <Route path="/reports/open" element={<OpenReports />} />
+            
+          </Route>
+        )}
+        
+        {/* Redirect unknown routes to login */}
+        <Route path="*" element={<Navigate to="/login" />} />
       </Routes>
     </BrowserRouter>
   );

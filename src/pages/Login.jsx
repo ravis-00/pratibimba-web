@@ -1,45 +1,69 @@
-import React, { useEffect } from 'react';
-import { signInWithPopup } from 'firebase/auth';
-import { auth, googleProvider } from '../firebase';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import apiClient from '../api';
 
 const Login = () => {
   const navigate = useNavigate();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
-  const handleLogin = async () => {
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const user = result.user;
+  const handleLogin = (e) => {
+    e.preventDefault();
+
+    // 🔐 HARDCODED DEV CREDENTIALS
+    if (email === 'admin@test.com' && password === 'admin123') {
+      // Create a fake user object
+      const fakeUser = {
+        email: email,
+        displayName: "Admin User",
+        uid: "dev-admin-123"
+      };
+
+      // Save to Local Storage (so you stay logged in if you refresh)
+      localStorage.setItem('user', JSON.stringify(fakeUser));
       
-      // OPTIONAL: Call Backend to verify user exists in Sheet immediately
-      // const profile = await apiClient('auth/me');
-      // console.log("User Profile:", profile);
-
-      navigate('/'); // Go to Dashboard after login
-    } catch (error) {
-      console.error("Login Failed", error);
-      alert("Login Failed: " + error.message);
+      // Go to Dashboard
+      window.location.href = "/"; 
+    } else {
+      alert("Invalid Credentials! Use admin@test.com / admin123");
     }
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md text-center">
-        <h1 className="text-3xl font-bold text-blue-700 mb-2">Pratibimba</h1>
-        <p className="text-gray-500 mb-8">Internal Quality Audit System</p>
+      <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
+        <h1 className="text-3xl font-bold text-center text-blue-700 mb-2">Pratibimba</h1>
+        <p className="text-center text-gray-500 mb-8">Dev Mode Login</p>
         
-        <button 
-          onClick={handleLogin}
-          className="w-full bg-white border border-gray-300 text-gray-700 py-3 px-4 rounded flex items-center justify-center gap-3 hover:bg-gray-50 transition shadow-sm font-medium"
-        >
-          <img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-6 h-6" alt="Google" />
-          Sign in with Google
-        </button>
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Email</label>
+            <input 
+              type="email" 
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="mt-1 block w-full border border-gray-300 rounded p-2"
+              placeholder="admin@test.com"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Password</label>
+            <input 
+              type="password" 
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="mt-1 block w-full border border-gray-300 rounded p-2"
+              placeholder="admin123"
+            />
+          </div>
 
-        <p className="mt-6 text-xs text-gray-400">
-          Rashtrotthana Parishat &copy; {new Date().getFullYear()}
-        </p>
+          <button 
+            type="submit"
+            className="w-full bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 transition"
+          >
+            Login
+          </button>
+        </form>
       </div>
     </div>
   );
