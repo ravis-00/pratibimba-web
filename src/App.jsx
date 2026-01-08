@@ -3,6 +3,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from './components/MainLayout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import UserManagement from './pages/UserManagement';
+import LocationManagement from './pages/LocationManagement';
 
 // ✅ CORRECT IMPORTS (Matches your renamed files)
 import PlannedAudits from './pages/PlannedAudits';   
@@ -57,6 +59,10 @@ function App() {
 
             {/* 5. Reports Module */}
             <Route path="/reports/open" element={<OpenReports />} />
+
+            {/* 6. Admin Modules */}
+    <Route path="/admin/users" element={<UserManagement />} />
+    <Route path="/admin/locations" element={<LocationManagement />} />
             
           </Route>
         )}

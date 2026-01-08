@@ -7,7 +7,9 @@ import {
   FileText, 
   LogOut, 
   Menu, 
-  X 
+  X,
+  Users, // 👈 Added this
+  Map    // 👈 Added this
 } from 'lucide-react';
 
 const MainLayout = ({ user, onLogout }) => {
@@ -36,6 +38,17 @@ const MainLayout = ({ user, onLogout }) => {
       path: '/reports/open', 
       icon: <FileText size={20} /> 
     },
+    // 👇 ADMIN SECTION
+    {
+      name: 'User Management',
+      path: '/admin/users',
+      icon: <Users size={20} />
+    },
+    {
+      name: 'Locations',
+      path: '/admin/locations',
+      icon: <Map size={20} />
+    }
   ];
 
   // Helper to check if a route is active (includes sub-routes)
@@ -47,7 +60,7 @@ const MainLayout = ({ user, onLogout }) => {
   return (
     <div className="flex h-screen bg-gray-50">
       
-      {/* 📱 MOBILE HEADER (Visible only on small screens) */}
+      {/* 📱 MOBILE HEADER */}
       <div className="md:hidden fixed w-full bg-white border-b border-gray-200 z-20 flex items-center justify-between px-4 h-16 top-0 left-0">
         <h1 className="text-xl font-bold text-blue-700">Pratibimba</h1>
         <button 
@@ -58,7 +71,7 @@ const MainLayout = ({ user, onLogout }) => {
         </button>
       </div>
 
-      {/* 🟢 SIDEBAR (Fixed on Desktop, Slide-over on Mobile) */}
+      {/* 🟢 SIDEBAR */}
       <aside className={`
         fixed md:static inset-y-0 left-0 z-10 w-64 bg-white border-r border-gray-200 
         transform transition-transform duration-200 ease-in-out
@@ -66,7 +79,7 @@ const MainLayout = ({ user, onLogout }) => {
         md:translate-x-0 flex flex-col h-full pt-16 md:pt-0
       `}>
         
-        {/* Logo Section (Desktop) */}
+        {/* Logo Section */}
         <div className="h-16 hidden md:flex items-center px-6 border-b border-gray-200">
           <h1 className="text-xl font-bold text-blue-700">Pratibimba</h1>
         </div>
@@ -77,7 +90,7 @@ const MainLayout = ({ user, onLogout }) => {
             <Link
               key={item.path}
               to={item.path}
-              onClick={() => setIsMobileMenuOpen(false)} // Close menu on mobile click
+              onClick={() => setIsMobileMenuOpen(false)}
               className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors
                 ${isActive(item.path) 
                   ? 'bg-blue-50 text-blue-700 border border-blue-100' 
@@ -90,7 +103,7 @@ const MainLayout = ({ user, onLogout }) => {
           ))}
         </nav>
 
-        {/* User Profile & Logout Section */}
+        {/* User Profile & Logout */}
         <div className="p-4 border-t border-gray-200 bg-gray-50/50">
           <div className="flex items-center gap-3 px-4 py-2 mb-3">
             <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold border border-blue-200">
@@ -119,12 +132,11 @@ const MainLayout = ({ user, onLogout }) => {
       {/* 🔵 MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col min-h-screen md:ml-0 pt-16 md:pt-0">
         <main className="flex-1 p-6 overflow-y-auto">
-          {/* <Outlet /> renders the child route (e.g., Dashboard, AuditPlan) */}
           <Outlet /> 
         </main>
       </div>
 
-      {/* Mobile Overlay (Click to close sidebar) */}
+      {/* Mobile Overlay */}
       {isMobileMenuOpen && (
         <div 
           className="fixed inset-0 bg-black/20 z-0 md:hidden"
