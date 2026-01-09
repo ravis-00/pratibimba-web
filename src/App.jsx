@@ -1,13 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+
+// Layout
 import MainLayout from './components/MainLayout';
+
+// Auth & Dashboard
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import UserManagement from './pages/UserManagement';
-import LocationManagement from './pages/LocationManagement';
 
-// ✅ CORRECT IMPORTS (Matches your renamed files)
-import PlannedAudits from './pages/PlannedAudits';   
+// Admin Modules
+import UserManagement from './pages/UserManagement';
+import LocationManagement from './pages/LocationManagement'; // You can rename this to PrakalpaManagement later if you want
+import MasterSettings from './pages/MasterSettings'; // 🟢 ADDED THIS IMPORT
+
+// Audit Modules
+import PlannedAudits from './pages/PlannedAudits';    
 import ScheduledAudits from './pages/ScheduledAudits'; 
 import OpenReports from './pages/OpenReports';
 
@@ -61,8 +68,9 @@ function App() {
             <Route path="/reports/open" element={<OpenReports />} />
 
             {/* 6. Admin Modules */}
-    <Route path="/admin/users" element={<UserManagement />} />
-    <Route path="/admin/locations" element={<LocationManagement />} />
+            <Route path="/admin/users" element={<UserManagement />} />
+            <Route path="/admin/locations" element={<LocationManagement />} />
+            <Route path="/admin/masters" element={<MasterSettings />} />
             
           </Route>
         )}

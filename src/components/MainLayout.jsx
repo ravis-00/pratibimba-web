@@ -8,8 +8,9 @@ import {
   LogOut, 
   Menu, 
   X,
-  Users, // 👈 Added this
-  Map    // 👈 Added this
+  Users,    // For User Management
+  Map,      // For Locations (Prakalpas)
+  Settings  // 🟢 Added for Master Settings
 } from 'lucide-react';
 
 const MainLayout = ({ user, onLogout }) => {
@@ -38,6 +39,7 @@ const MainLayout = ({ user, onLogout }) => {
       path: '/reports/open', 
       icon: <FileText size={20} /> 
     },
+    
     // 👇 ADMIN SECTION
     {
       name: 'User Management',
@@ -45,13 +47,18 @@ const MainLayout = ({ user, onLogout }) => {
       icon: <Users size={20} />
     },
     {
-      name: 'Locations',
+      name: 'Locations (Prakalpas)', // Updated label for clarity
       path: '/admin/locations',
       icon: <Map size={20} />
+    },
+    {
+      name: 'System Masters', // The new page we just built
+      path: '/admin/masters',
+      icon: <Settings size={20} /> // 🟢 Used Settings icon here
     }
   ];
 
-  // Helper to check if a route is active (includes sub-routes)
+  // Helper to check if a route is active
   const isActive = (path) => {
     if (path === '/') return location.pathname === '/';
     return location.pathname.startsWith(path);
