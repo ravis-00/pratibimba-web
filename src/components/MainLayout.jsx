@@ -47,7 +47,7 @@ const MainLayout = ({ user, onLogout }) => {
       icon: <Users size={20} />
     },
     {
-      name: 'Locations (Prakalpas)', // Updated label for clarity
+      name: 'Prakalpas', // Updated label for clarity
       path: '/admin/locations',
       icon: <Map size={20} />
     },
