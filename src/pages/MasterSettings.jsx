@@ -10,11 +10,12 @@ const MasterSettings = () => {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  
   const [formData, setFormData] = useState({
     id: '',
     category: '',
     value: '',
-    parent_value: '', // 🟢 CRITICAL: Stores the link to Functional Area
+    linked_functional_area: '', // 🟢 FIXED: Match DB Column Name
     display_order: 1,
     status: 'Active'
   });
@@ -45,8 +46,8 @@ const MasterSettings = () => {
       });
       const data = await res.json();
       if (data.status === 'success') {
-        // Sort by Category, then by Display Order
-        const sorted = (data.data || []).sort((a, b) => a.display_order - b.display_order);
+        // Sort by Display Order
+        const sorted = (data.data || []).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
         setItems(sorted);
       }
     } catch (e) {
@@ -57,10 +58,7 @@ const MasterSettings = () => {
   };
 
   // 4. DERIVED LISTS
-  // Get list of Functional Areas to populate the "Parent" dropdown
   const functionalAreas = items.filter(i => i.category === 'Functional Area' && i.status === 'Active');
-  
-  // Get items for the current active tab
   const currentTabItems = items.filter(i => i.category === activeTab);
 
   // 5. HANDLERS
@@ -68,10 +66,10 @@ const MasterSettings = () => {
     setIsEditing(false);
     setFormData({ 
       id: '', 
-      category: activeTab, // Auto-set category based on tab
+      category: activeTab, 
       value: '', 
-      parent_value: '', 
-      display_order: currentTabItems.length + 1, // Auto-increment order
+      linked_functional_area: '', 
+      display_order: currentTabItems.length + 1, 
       status: 'Active' 
     });
     setIsModalOpen(true);
@@ -79,15 +77,37 @@ const MasterSettings = () => {
 
   const handleEdit = (item) => {
     setIsEditing(true);
-    setFormData({ ...item });
+    setFormData({ 
+      ...item,
+      // Handle legacy data where this might be undefined
+      linked_functional_area: item.linked_functional_area || '' 
+    });
     setIsModalOpen(true);
   };
 
-  const handleDelete = async (id, value) => {
-    if(!window.confirm(`Delete "${value}"? This might break existing records linked to it.`)) return;
-    // Note: You need to implement 'meta/dropdowns/delete' in backend if you want real deletion.
-    // For now, we usually just set status to 'Inactive'.
-    alert("Deletion logic needs to be added to backend. For now, try setting status to Inactive.");
+  const handleSoftDelete = async (item) => {
+    if(!window.confirm(`Are you sure you want to deactivate "${item.value}"?`)) return;
+    
+    setLoading(true);
+    const email = getUserEmail();
+    
+    try {
+      // We don't delete; we just set Status to 'Inactive'
+      await fetch(API_URL, {
+        method: 'POST',
+        body: JSON.stringify({ 
+          action: 'meta/dropdowns/update', 
+          userEmail: email, 
+          id: item.id,
+          status: 'Inactive' 
+        })
+      });
+      fetchData(); 
+    } catch (error) { 
+      alert("Error updating status."); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -160,7 +180,6 @@ const MasterSettings = () => {
           <thead className="bg-gray-50 text-gray-700 uppercase font-bold border-b">
             <tr>
               <th className="px-6 py-3">Value (Name)</th>
-              {/* 🟢 SHOW PARENT COLUMN ONLY FOR AUDIT AREAS */}
               {activeTab === 'Audit Area' && <th className="px-6 py-3">Linked Functional Area</th>}
               <th className="px-6 py-3 w-24 text-center">Order</th>
               <th className="px-6 py-3 w-32">Status</th>
@@ -174,10 +193,9 @@ const MasterSettings = () => {
               <tr key={i} className="hover:bg-gray-50">
                 <td className="px-6 py-3 font-medium text-gray-900">{item.value}</td>
                 
-                {/* 🟢 SHOW PARENT VALUE */}
                 {activeTab === 'Audit Area' && (
                   <td className="px-6 py-3 text-blue-600 font-medium">
-                    {item.parent_value || <span className="text-red-300 italic">Unmapped</span>}
+                    {item.linked_functional_area || <span className="text-red-300 italic">Unmapped</span>}
                   </td>
                 )}
                 
@@ -189,6 +207,7 @@ const MasterSettings = () => {
                 </td>
                 <td className="px-6 py-3 text-right flex justify-end gap-2">
                   <button onClick={() => handleEdit(item)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Edit size={16}/></button>
+                  <button onClick={() => handleSoftDelete(item)} className="text-red-400 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
                 </td>
               </tr>
             ))}
@@ -209,22 +228,21 @@ const MasterSettings = () => {
             
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               
-              {/* 🟢 CONDITIONAL INPUT: PARENT CATEGORY */}
+              {/* 🟢 CONDITIONAL INPUT: LINKED AREA */}
               {activeTab === 'Audit Area' && (
                 <div>
-                  <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Link to Functional Area (Parent)</label>
+                  <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Link to Functional Area</label>
                   <select 
                     required 
                     className="w-full border border-gray-300 rounded px-3 py-2 bg-blue-50 focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={formData.parent_value}
-                    onChange={(e) => setFormData({...formData, parent_value: e.target.value})}
+                    value={formData.linked_functional_area}
+                    onChange={(e) => setFormData({...formData, linked_functional_area: e.target.value})}
                   >
                     <option value="">-- Select Functional Area --</option>
                     {functionalAreas.map((fa, idx) => (
                       <option key={idx} value={fa.value}>{fa.value}</option>
                     ))}
                   </select>
-                  <p className="text-xs text-gray-400 mt-1">Example: Curriculum Planning belongs to Academic Systems.</p>
                 </div>
               )}
 

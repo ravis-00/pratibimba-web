@@ -10,15 +10,15 @@ import Dashboard from './pages/Dashboard';
 
 // Admin Modules
 import UserManagement from './pages/UserManagement';
-import LocationManagement from './pages/LocationManagement'; // You can rename this to PrakalpaManagement later if you want
-import MasterSettings from './pages/MasterSettings'; // 🟢 ADDED THIS IMPORT
+import LocationManagement from './pages/LocationManagement';
+import MasterSettings from './pages/MasterSettings';
 
 // Audit Modules
 import PlannedAudits from './pages/PlannedAudits';    
 import ScheduledAudits from './pages/ScheduledAudits'; 
 import OpenReports from './pages/OpenReports';
 
-// Placeholder Forms (We will build these next)
+// Placeholder Forms
 const AuditPlanForm = () => <div className="p-10">Form: Create New Audit Plan</div>;
 const ScheduleAuditForm = () => <div className="p-10">Form: Schedule an Audit</div>;
 const Checklist = () => <div className="p-10">Form: Audit Checklist & Execution</div>;
@@ -27,24 +27,39 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // 1. Auto-Login Check (Runs once on load)
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
-    if (storedUser) setUser(JSON.parse(storedUser));
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
     setLoading(false);
   }, []);
 
+  // 2. Define the Login Handler (The missing link!)
+  const handleLogin = (userData) => {
+    console.log("Login Success:", userData);
+    setUser(userData);
+    localStorage.setItem('user', JSON.stringify(userData));
+  };
+
+  // 3. Define the Logout Handler
   const handleLogout = () => {
     localStorage.removeItem('user');
     setUser(null);
-    window.location.href = "/login";
+    // No need for window.location.href, React Router will handle the redirect
   };
 
-  if (loading) return <div>Loading...</div>;
+  if (loading) return <div className="flex h-screen items-center justify-center">Loading...</div>;
 
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
+        {/* 🟢 FIXED: Passed 'handleLogin' to the Login component */}
+        <Route 
+          path="/login" 
+          element={!user ? <Login onLogin={handleLogin} /> : <Navigate to="/" />} 
+        />
         
         {/* Protected Routes wrapped in MainLayout */}
         {user && (
