@@ -1,21 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Settings, Edit, Trash2, Save, X, RefreshCw } from 'lucide-react';
+import { Plus, Settings, Edit, Trash2, X, RefreshCw } from 'lucide-react';
 
 const MasterSettings = () => {
   // 1. STATE MANAGEMENT
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('Functional Area'); // Default Tab
+  const [activeTab, setActiveTab] = useState('Functional Area');
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   
+  // 🟢 STANDARDIZED FORM STATE (Matches DB 'parent_value')
   const [formData, setFormData] = useState({
     id: '',
     category: '',
     value: '',
-    linked_functional_area: '', // 🟢 FIXED: Match DB Column Name
+    parent_value: '', 
     display_order: 1,
     status: 'Active'
   });
@@ -23,13 +24,12 @@ const MasterSettings = () => {
   // ⚠️ USE YOUR LATEST DEPLOYED URL
   const API_URL = "https://script.google.com/macros/s/AKfycbydpsKTfB6uN8wYknoQMGntXDwmggXQdfmLGdfSHUxoS9ktImYk8oxcw_X-IE_HtGeoFA/exec";
 
-  // 2. HELPER: Get User Email
   const getUserEmail = () => {
     const userStr = localStorage.getItem('user');
     return userStr ? JSON.parse(userStr).email : null;
   };
 
-  // 3. FETCH DATA
+  // 2. FETCH DATA
   useEffect(() => {
     fetchData();
   }, []);
@@ -46,7 +46,7 @@ const MasterSettings = () => {
       });
       const data = await res.json();
       if (data.status === 'success') {
-        // Sort by Display Order
+        // Sort: Display Order ascending
         const sorted = (data.data || []).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
         setItems(sorted);
       }
@@ -57,18 +57,20 @@ const MasterSettings = () => {
     }
   };
 
-  // 4. DERIVED LISTS
+  // 3. DERIVED LISTS
+  // Used for the "Parent" dropdown
   const functionalAreas = items.filter(i => i.category === 'Functional Area' && i.status === 'Active');
+  // Used for the Table Display
   const currentTabItems = items.filter(i => i.category === activeTab);
 
-  // 5. HANDLERS
+  // 4. HANDLERS
   const handleAddNew = () => {
     setIsEditing(false);
     setFormData({ 
       id: '', 
       category: activeTab, 
       value: '', 
-      linked_functional_area: '', 
+      parent_value: '', 
       display_order: currentTabItems.length + 1, 
       status: 'Active' 
     });
@@ -77,14 +79,11 @@ const MasterSettings = () => {
 
   const handleEdit = (item) => {
     setIsEditing(true);
-    setFormData({ 
-      ...item,
-      // Handle legacy data where this might be undefined
-      linked_functional_area: item.linked_functional_area || '' 
-    });
+    setFormData({ ...item });
     setIsModalOpen(true);
   };
 
+  // 🟢 RESTORED: Soft Delete (Deactivate)
   const handleSoftDelete = async (item) => {
     if(!window.confirm(`Are you sure you want to deactivate "${item.value}"?`)) return;
     
@@ -92,7 +91,7 @@ const MasterSettings = () => {
     const email = getUserEmail();
     
     try {
-      // We don't delete; we just set Status to 'Inactive'
+      // We don't delete row, just set status to Inactive
       await fetch(API_URL, {
         method: 'POST',
         body: JSON.stringify({ 
@@ -118,24 +117,30 @@ const MasterSettings = () => {
     const action = isEditing ? 'meta/dropdowns/update' : 'meta/dropdowns/create';
 
     try {
-      await fetch(API_URL, {
+      const response = await fetch(API_URL, {
         method: 'POST',
         body: JSON.stringify({ action, userEmail: email, ...formData })
       });
-      setIsModalOpen(false);
-      fetchData(); 
+      const result = await response.json();
+      
+      if (result.status === 'success') {
+         setIsModalOpen(false);
+         fetchData();
+      } else {
+         alert("Error: " + result.message); 
+      }
     } catch (error) { 
-      alert("Error saving."); 
+      alert("Network Error saving."); 
     } finally { 
       setLoading(false); 
     }
   };
 
-  // 6. TABS CONFIGURATION
+  // 5. TABS CONFIGURATION
   const tabs = [
-    { name: 'Functional Area', label: 'Functional Areas' },
-    { name: 'Audit Area', label: 'Audit Areas' },
-    { name: 'Prakalpa Type', label: 'Prakalpa Types' }
+    { name: 'Functional Area', label: '1. Functional Areas (Parent)' },
+    { name: 'Audit Area', label: '2. Audit Areas (Child)' },
+    { name: 'Prakalpa Type', label: '3. Prakalpa Types' }
   ];
 
   return (
@@ -180,7 +185,8 @@ const MasterSettings = () => {
           <thead className="bg-gray-50 text-gray-700 uppercase font-bold border-b">
             <tr>
               <th className="px-6 py-3">Value (Name)</th>
-              {activeTab === 'Audit Area' && <th className="px-6 py-3">Linked Functional Area</th>}
+              {/* 🟢 CONDITIONAL COLUMN: Only show Parent for Audit Areas */}
+              {activeTab === 'Audit Area' && <th className="px-6 py-3">Belongs To (Parent)</th>}
               <th className="px-6 py-3 w-24 text-center">Order</th>
               <th className="px-6 py-3 w-32">Status</th>
               <th className="px-6 py-3 text-right">Action</th>
@@ -195,7 +201,7 @@ const MasterSettings = () => {
                 
                 {activeTab === 'Audit Area' && (
                   <td className="px-6 py-3 text-blue-600 font-medium">
-                    {item.linked_functional_area || <span className="text-red-300 italic">Unmapped</span>}
+                    {item.parent_value || <span className="text-red-300 italic">Unmapped</span>}
                   </td>
                 )}
                 
@@ -228,17 +234,17 @@ const MasterSettings = () => {
             
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               
-              {/* 🟢 CONDITIONAL INPUT: LINKED AREA */}
+              {/* 🟢 CONDITIONAL INPUT: PARENT CATEGORY */}
               {activeTab === 'Audit Area' && (
                 <div>
-                  <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Link to Functional Area</label>
+                  <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Belongs To (Functional Area)</label>
                   <select 
                     required 
                     className="w-full border border-gray-300 rounded px-3 py-2 bg-blue-50 focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={formData.linked_functional_area}
-                    onChange={(e) => setFormData({...formData, linked_functional_area: e.target.value})}
+                    value={formData.parent_value}
+                    onChange={(e) => setFormData({...formData, parent_value: e.target.value})}
                   >
-                    <option value="">-- Select Functional Area --</option>
+                    <option value="">-- Select Parent Functional Area --</option>
                     {functionalAreas.map((fa, idx) => (
                       <option key={idx} value={fa.value}>{fa.value}</option>
                     ))}
