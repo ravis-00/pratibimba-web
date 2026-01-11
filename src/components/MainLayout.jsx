@@ -10,7 +10,8 @@ import {
   X,
   Users,    // For User Management
   Map,      // For Locations (Prakalpas)
-  Settings  // 🟢 Added for Master Settings
+  Settings, // For Master Settings
+  CheckCircle // 🟢 Added for Action Items
 } from 'lucide-react';
 
 const MainLayout = ({ user, onLogout }) => {
@@ -39,6 +40,12 @@ const MainLayout = ({ user, onLogout }) => {
       path: '/reports/open', 
       icon: <FileText size={20} /> 
     },
+    // 🟢 NEW ITEM: Action Items (CAPA)
+    { 
+      name: 'My Action Items', 
+      path: '/action-items', 
+      icon: <CheckCircle size={20} /> 
+    },
     
     // 👇 ADMIN SECTION
     {
@@ -47,14 +54,14 @@ const MainLayout = ({ user, onLogout }) => {
       icon: <Users size={20} />
     },
     {
-      name: 'Prakalpas', // Updated label for clarity
+      name: 'Prakalpas', 
       path: '/admin/locations',
       icon: <Map size={20} />
     },
     {
-      name: 'System Masters', // The new page we just built
+      name: 'System Masters', 
       path: '/admin/masters',
-      icon: <Settings size={20} /> // 🟢 Used Settings icon here
+      icon: <Settings size={20} /> 
     }
   ];
 
@@ -114,11 +121,11 @@ const MainLayout = ({ user, onLogout }) => {
         <div className="p-4 border-t border-gray-200 bg-gray-50/50">
           <div className="flex items-center gap-3 px-4 py-2 mb-3">
             <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold border border-blue-200">
-              {user?.displayName?.charAt(0).toUpperCase() || 'U'}
+              {user?.full_name?.charAt(0).toUpperCase() || 'U'}
             </div>
             <div className="overflow-hidden">
               <p className="text-sm font-bold text-gray-900 truncate">
-                {user?.displayName || 'User'}
+                {user?.full_name || 'User'}
               </p>
               <p className="text-xs text-gray-500 truncate">
                 {user?.email || 'No Email'}

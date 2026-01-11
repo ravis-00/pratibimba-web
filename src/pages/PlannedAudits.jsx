@@ -259,16 +259,30 @@ const PlannedAudits = () => {
       }).sort((a, b) => a.full_name.localeCompare(b.full_name));
   };
 
-  // 🟢 2. FILTER AUDITEES BY LOCATION
+  // 🟢 SMART FILTER: Links ID (PRK005) to Name (JGRV)
   const getAuditeeOptions = () => {
+      // 1. Get the Plan's Location ID (PRK005)
+      const targetId = normalize(scheduleData.location_id);
+      
+      // 2. Find the Prakalpa Name using the Master List
+      const targetPrakalpa = prakalpas.find(p => normalize(p.prakalpa_id) === targetId);
+      const targetName = targetPrakalpa ? normalize(targetPrakalpa.prakalpa_name) : '';
+
+      // Debugging: Check if the link works
+      // console.log(`Plan ID: ${targetId} => Found Name: ${targetName}`);
+
       return users.filter(u => {
           const r = normalize(u.role);
           const isAuditee = r.includes('auditee');
-          // 🟢 Check if user's location matches the plan's location
-          // Ensure your 'users' sheet has 'location_id' column populated!
-          const matchesLocation = u.location_id === scheduleData.location_id;
           
-          return isAuditee && matchesLocation; 
+          // 3. Compare User's Prakalpa Name vs. Target Name
+          // We normalize (lowercase/trim) to avoid mismatches like "JGRV" vs "jgrv "
+          const userPrakalpaName = normalize(u.prakalpa_name);
+          
+          // Logic: Match if User has the same ID OR the same Name
+          const matches = userPrakalpaName === targetName;
+
+          return isAuditee && matches; 
       }).sort((a, b) => a.full_name.localeCompare(b.full_name));
   };
 
