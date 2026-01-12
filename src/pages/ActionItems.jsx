@@ -9,7 +9,6 @@ const ActionItems = () => {
   const [selectedItem, setSelectedItem] = useState(null); 
   const [formData, setFormData] = useState({ root_cause: '', corrective_action: '', target_date: '', remarks: '' });
   
-  // 🟢 NEW: Tab State ('pending' or 'history')
   const [activeTab, setActiveTab] = useState('pending');
 
   const API_URL = config.API_URL;
@@ -89,6 +88,20 @@ const ActionItems = () => {
     finally { setSubmitting(false); }
   };
 
+  // 🟢 HELPER: Format Date to dd-mm-yyyy
+  const formatDate = (dateVal) => {
+    if (!dateVal) return 'N/A';
+    try {
+        const d = new Date(dateVal);
+        if(isNaN(d.getTime())) return dateVal; // Return original if parsing fails
+        
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        return `${day}-${month}-${year}`;
+    } catch (e) { return dateVal; }
+  };
+
   const getStatusBadge = (status) => {
       if(status === 'Pending Review') return <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs font-bold flex items-center gap-1"><Clock size={12}/> Review Needed</span>;
       if(status === 'Open') return <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold flex items-center gap-1"><AlertTriangle size={12}/> Action Required</span>;
@@ -96,7 +109,6 @@ const ActionItems = () => {
       return <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-bold">{status}</span>;
   };
 
-  // 🟢 FILTER LOGIC
   const displayedItems = items.filter(item => {
       if (activeTab === 'pending') return item.status !== 'Closed';
       if (activeTab === 'history') return item.status === 'Closed';
@@ -110,7 +122,6 @@ const ActionItems = () => {
             <CheckCircle className="text-purple-600"/> My Action Items (CAPA)
         </h1>
         
-        {/* 🟢 TABS */}
         <div className="flex bg-gray-100 p-1 rounded-lg">
             <button 
                 onClick={() => setActiveTab('pending')}
@@ -139,13 +150,15 @@ const ActionItems = () => {
             <div key={i} className={`bg-white p-5 rounded-lg shadow border-l-4 flex justify-between items-start ${item.status === 'Closed' ? 'border-green-500 opacity-75' : 'border-purple-500'}`}>
                 <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
-                        <span className="font-mono font-bold text-gray-500 text-sm">{item.finding_code || item.observation_id}</span>
+                        {/* 🟢 FIXED: Prioritize finding_code (NC-01) over observation_id */}
+                        <span className="font-mono font-bold text-gray-500 text-sm">
+                            {item.finding_code || item.observation_id}
+                        </span>
                         {getStatusBadge(item.status)}
                         <span className="text-xs text-gray-400">Audit: {item.audit_id} ({item.location_name})</span>
                     </div>
                     <p className="text-gray-800 font-medium mb-1">{item.observation_text}</p>
                     
-                    {/* Show Details (Collapsed logic could be added here, but showing strictly for now) */}
                     {item.root_cause && (
                         <div className="mt-3 bg-gray-50 p-2 rounded text-sm text-gray-600 border border-gray-100">
                             <p><strong>Root Cause:</strong> {item.root_cause}</p>
@@ -158,7 +171,6 @@ const ActionItems = () => {
                 </div>
 
                 <div className="ml-4 flex flex-col gap-2">
-                    {/* BUTTONS (Only show if NOT closed) */}
                     {item.status !== 'Closed' && (
                         <>
                             {(currentUser.role === 'Admin' || !isAuditor) && item.status === 'Open' && (
@@ -175,7 +187,8 @@ const ActionItems = () => {
                     )}
                     {item.status === 'Closed' && (
                         <span className="text-xs text-gray-400 font-mono">
-                            Closed on: {item.closure_date || 'N/A'}
+                            {/* 🟢 FIXED: Use formatDate helper here */}
+                            Closed on: {formatDate(item.closure_date)}
                         </span>
                     )}
                 </div>
@@ -183,7 +196,7 @@ const ActionItems = () => {
         ))}
       </div>
 
-      {/* MODAL CODE (Same as before) */}
+      {/* MODAL CODE remains exactly the same... */}
       {selectedItem && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
@@ -194,7 +207,6 @@ const ActionItems = () => {
 
                 <form>
                     <div className="space-y-3">
-                        {/* Fields disabled if closed or verifying */}
                         <div>
                             <label className="block text-xs font-bold text-gray-500">Root Cause Analysis</label>
                             <textarea className="w-full border rounded p-2 text-sm" rows="2"
