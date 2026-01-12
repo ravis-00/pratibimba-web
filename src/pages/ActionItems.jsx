@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { CheckCircle, Clock, AlertTriangle, FileText, Send, XCircle, Check } from 'lucide-react';
+import { CheckCircle, Clock, AlertTriangle, Send, XCircle, Check } from 'lucide-react';
 import config from '../config';
 
 const ActionItems = () => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedItem, setSelectedItem] = useState(null); // For Modal
+  const [submitting, setSubmitting] = useState(false); // 🟢 New Loading State for Submit
+  const [selectedItem, setSelectedItem] = useState(null); 
   const [formData, setFormData] = useState({ root_cause: '', corrective_action: '', target_date: '', remarks: '' });
   
   const API_URL = config.API_URL;
@@ -30,7 +31,6 @@ const ActionItems = () => {
 
   const openModal = (item) => {
     setSelectedItem(item);
-    // Pre-fill if editing
     setFormData({
         root_cause: item.root_cause || '',
         corrective_action: item.corrective_action || '',
@@ -39,38 +39,73 @@ const ActionItems = () => {
     });
   };
 
+  // 🟢 UPDATED: Handle Submit with Success/Error Checks
   const handleSubmitResponse = async (e) => {
     e.preventDefault();
-    await fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({ 
+    setSubmitting(true);
+    
+    try {
+        const payload = { 
             action: 'capa/submit', 
+            // 🟢 CRITICAL FIX: Add the user's email here
+            userEmail: currentUser.email, 
+            
             observation_id: selectedItem.observation_id,
             ...formData 
-        })
-    });
-    setSelectedItem(null);
-    fetchItems();
+        };
+
+        console.log("Sending Payload:", payload);
+
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            alert("✅ Action Plan Submitted Successfully!");
+            setSelectedItem(null);
+            fetchItems(); // Refresh to update status
+        } else {
+            alert("❌ Error: " + result.message);
+        }
+    } catch (error) {
+        console.error("Submit Error:", error);
+        alert("❌ Network Error. Please try again.");
+    } finally {
+        setSubmitting(false);
+    }
   };
 
   const handleVerify = async (decision) => {
-    await fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({ 
-            action: 'capa/verify', 
-            observation_id: selectedItem.observation_id,
-            decision: decision, // 'Approve' or 'Reject'
-            remarks: formData.remarks
-        })
-    });
-    setSelectedItem(null);
-    fetchItems();
+    setSubmitting(true);
+    try {
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify({ 
+                action: 'capa/verify', 
+                observation_id: selectedItem.observation_id,
+                decision: decision, 
+                remarks: formData.remarks
+            })
+        });
+        const result = await response.json();
+        if(result.status === 'success') {
+            alert(`✅ Observation marked as ${decision === 'Approve' ? 'Closed' : 'Open'}`);
+            setSelectedItem(null);
+            fetchItems();
+        } else {
+            alert("❌ Error: " + result.message);
+        }
+    } catch (error) { alert("❌ Verification Failed"); }
+    finally { setSubmitting(false); }
   };
 
-  // Status Badge Helper
   const getStatusBadge = (status) => {
       if(status === 'Pending Review') return <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs font-bold flex items-center gap-1"><Clock size={12}/> Review Needed</span>;
       if(status === 'Open') return <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold flex items-center gap-1"><AlertTriangle size={12}/> Action Required</span>;
+      if(status === 'Closed') return <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold flex items-center gap-1"><CheckCircle size={12}/> Closed</span>;
       return <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-bold">{status}</span>;
   };
 
@@ -80,10 +115,9 @@ const ActionItems = () => {
         <CheckCircle className="text-purple-600"/> My Action Items (CAPA)
       </h1>
 
-      {/* LIST OF OPEN ISSUES */}
       <div className="grid gap-4">
         {loading && <p>Loading actions...</p>}
-        {!loading && items.length === 0 && <p className="text-gray-500 italic">No pending actions. Good job!</p>}
+        {!loading && items.length === 0 && <p className="text-gray-500 italic">No pending actions.</p>}
         
         {items.map((item, i) => (
             <div key={i} className="bg-white p-5 rounded-lg shadow border-l-4 border-purple-500 flex justify-between items-start">
@@ -96,7 +130,6 @@ const ActionItems = () => {
                     <p className="text-gray-800 font-medium mb-1">{item.observation_text}</p>
                     <p className="text-xs text-gray-500">Area: {item.functional_area} | Type: {item.type}</p>
                     
-                    {/* Show response if exists */}
                     {item.root_cause && (
                         <div className="mt-3 bg-gray-50 p-2 rounded text-sm text-gray-600 border border-gray-100">
                             <strong>Root Cause:</strong> {item.root_cause} <br/>
@@ -106,27 +139,21 @@ const ActionItems = () => {
                 </div>
 
                 <div className="ml-4 flex flex-col gap-2">
-                    {/* BUTTON LOGIC UPDATE:
-                       1. RESPOND: Visible if status is OPEN and user is (Auditee OR Admin)
-                       2. VERIFY: Visible if status is PENDING and user is (Coordinator OR Admin)
-                    */}
-
-                    {/* 🟢 1. RESPOND BUTTON */}
-                    {/* Allow Admins to see this button too for testing */}
+                    {/* RESPOND BUTTON (Visible to Auditee OR Admin for testing) */}
                     { (currentUser.role === 'Admin' || !isAuditor) && item.status === 'Open' && (
                         <button onClick={() => openModal(item)} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-blue-700 whitespace-nowrap">
                             Respond
                         </button>
                     )}
 
-                    {/* 🟢 2. VERIFY BUTTON */}
+                    {/* VERIFY BUTTON (Visible to Auditor/Admin) */}
                     { isAuditor && item.status === 'Pending Review' && (
                         <button onClick={() => openModal(item)} className="bg-green-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-green-700 whitespace-nowrap">
                             Verify Closure
                         </button>
                     )}
 
-                    {/* 🟢 3. WAITING STATE */}
+                    {/* WAITING STATE */}
                     { !isAuditor && item.status === 'Pending Review' && (
                         <span className="text-xs text-orange-500 italic font-medium px-2 py-1 bg-orange-50 rounded border border-orange-100">
                             Waiting for Auditor...
@@ -137,12 +164,11 @@ const ActionItems = () => {
         ))}
       </div>
 
-      {/* MODAL: Handles BOTH Auditee Response & Auditor Verification */}
       {selectedItem && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
                 <h3 className="text-lg font-bold mb-4">
-                    {isAuditor ? 'Verify Closure' : 'Submit Action Plan'}
+                    {isAuditor && selectedItem.status === 'Pending Review' ? 'Verify Closure' : 'Submit Action Plan'}
                 </h3>
                 
                 <div className="mb-4 text-sm text-gray-600 bg-gray-50 p-3 rounded">
@@ -150,12 +176,11 @@ const ActionItems = () => {
                 </div>
 
                 <form>
-                    {/* AUDITEE FIELDS */}
                     <div className="space-y-3">
                         <div>
                             <label className="block text-xs font-bold text-gray-500">Root Cause Analysis</label>
                             <textarea className="w-full border rounded p-2 text-sm" rows="2"
-                                disabled={isAuditor} // Auditor can't edit this
+                                disabled={isAuditor} 
                                 value={formData.root_cause} 
                                 onChange={e => setFormData({...formData, root_cause: e.target.value})}
                             ></textarea>
@@ -178,7 +203,6 @@ const ActionItems = () => {
                         </div>
                     </div>
 
-                    {/* AUDITOR FIELDS */}
                     {isAuditor && (
                          <div className="mt-4 border-t pt-4">
                             <label className="block text-xs font-bold text-gray-500">Auditor Remarks</label>
@@ -192,18 +216,18 @@ const ActionItems = () => {
                         <button type="button" onClick={() => setSelectedItem(null)} className="text-gray-500 px-3 py-2">Cancel</button>
                         
                         {!isAuditor && (
-                            <button onClick={handleSubmitResponse} className="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700 flex items-center gap-2">
-                                <Send size={16}/> Submit
+                            <button onClick={handleSubmitResponse} disabled={submitting} className="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700 flex items-center gap-2 disabled:bg-blue-300">
+                                <Send size={16}/> {submitting ? 'Submitting...' : 'Submit'}
                             </button>
                         )}
 
                         {isAuditor && (
                             <>
-                                <button type="button" onClick={() => handleVerify('Reject')} className="bg-red-100 text-red-600 px-4 py-2 rounded font-bold hover:bg-red-200 flex items-center gap-2">
+                                <button type="button" onClick={() => handleVerify('Reject')} disabled={submitting} className="bg-red-100 text-red-600 px-4 py-2 rounded font-bold hover:bg-red-200 flex items-center gap-2">
                                     <XCircle size={16}/> Reject
                                 </button>
-                                <button type="button" onClick={() => handleVerify('Approve')} className="bg-green-600 text-white px-4 py-2 rounded font-bold hover:bg-green-700 flex items-center gap-2">
-                                    <Check size={16}/> Approve & Close
+                                <button type="button" onClick={() => handleVerify('Approve')} disabled={submitting} className="bg-green-600 text-white px-4 py-2 rounded font-bold hover:bg-green-700 flex items-center gap-2">
+                                    <Check size={16}/> Approve
                                 </button>
                             </>
                         )}
