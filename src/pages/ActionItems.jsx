@@ -44,25 +44,34 @@ const ActionItems = () => {
   const handleSubmitResponse = async (e) => {
     e.preventDefault();
     setSubmitting(true);
+    
     try {
         const payload = { 
             action: 'capa/submit', 
-            userEmail: currentUser.email, 
+            userEmail: currentUser?.email, // 🟢 CRITICAL FIX: Added this line
             observation_id: selectedItem.observation_id,
             ...formData 
         };
-        const response = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        
         const result = await response.json();
         
         if (result.status === 'success') {
             alert("✅ Action Plan Submitted Successfully!");
             setSelectedItem(null);
-            fetchItems(); 
+            fetchItems(); // Refresh list
         } else {
             alert("❌ Error: " + result.message);
         }
-    } catch (error) { alert("❌ Network Error"); } 
-    finally { setSubmitting(false); }
+    } catch (error) {
+        alert("❌ Network Error");
+    } finally {
+        setSubmitting(false);
+    }
   };
 
   const handleVerify = async (decision) => {
@@ -70,13 +79,19 @@ const ActionItems = () => {
     try {
         const payload = { 
             action: 'capa/verify', 
-            userEmail: currentUser.email,
+            userEmail: currentUser?.email, // 🟢 CRITICAL FIX: Added this line
             observation_id: selectedItem.observation_id,
             decision: decision, 
             remarks: formData.remarks
         };
-        const response = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        
         const result = await response.json();
+        
         if(result.status === 'success') {
             alert(`✅ Observation marked as ${decision === 'Approve' ? 'Closed' : 'Open'}`);
             setSelectedItem(null);
@@ -84,8 +99,11 @@ const ActionItems = () => {
         } else {
             alert("❌ Error: " + result.message);
         }
-    } catch (error) { alert("❌ Verification Failed"); }
-    finally { setSubmitting(false); }
+    } catch (error) { 
+        alert("❌ Verification Failed"); 
+    } finally { 
+        setSubmitting(false); 
+    }
   };
 
   // 🟢 HELPER: Format Date to dd-mm-yyyy

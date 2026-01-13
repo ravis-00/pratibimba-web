@@ -1,564 +1,425 @@
-import React, { useState, useEffect } from 'react';
-import { Calendar, Plus, User, MapPin, Search, RefreshCw, X, CheckSquare, Square, Edit, Trash2, CalendarClock } from 'lucide-react';
-import config from '../config';
-
-// SIMPLE TOAST COMPONENT
-const Toast = ({ message, type, onClose }) => {
-  useEffect(() => {
-    const timer = setTimeout(onClose, 3000); 
-    return () => clearTimeout(timer);
-  }, [onClose]);
-
-  const bgColor = type === 'success' ? 'bg-green-600' : 'bg-red-600';
-
-  return (
-    <div className={`fixed top-4 right-4 ${bgColor} text-white px-6 py-3 rounded-lg shadow-xl z-[100] flex items-center gap-2 animate-fade-in`}>
-      <span className="font-bold">{type === 'success' ? 'Success' : 'Error'}:</span> {message}
-    </div>
-  );
-};
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import {
+  Plus, Search, RefreshCw, Calendar, MapPin, User, Trash2,
+  CalendarClock, Filter, X, ChevronLeft, ChevronRight,
+  Download, ArrowUpDown, ArrowUp, ArrowDown, Eye, Edit3, CheckCircle, Save
+} from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import config from "../config";
 
 const PlannedAudits = () => {
-  // 1. STATE DEFINITIONS
+  const navigate = useNavigate();
+
+  // =========================
+  // 1. STATE MANAGEMENT
+  // =========================
   const [plans, setPlans] = useState([]);
-  const [prakalpas, setPrakalpas] = useState([]);
-  const [users, setUsers] = useState([]); 
-  const [dropdowns, setDropdowns] = useState([]); 
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  
-  // Modal & Toast State
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false); 
-  const [isEditMode, setIsEditMode] = useState(false); 
-  const [toast, setToast] = useState(null); 
+  const [submitting, setSubmitting] = useState(false);
 
-  // Form State
-  const initialFormState = {
-    audit_id: '', 
-    ay_year: '2025-26', 
-    location_id: '',
-    coordinator_email: '',
-    functional_area: '', 
-    audit_areas: [], 
-    planned_month: ''
-  };
-  const [formData, setFormData] = useState(initialFormState);
+  // Modal States
+  const [viewData, setViewData] = useState(null);
+  const [editData, setEditData] = useState(null);
 
-  // Schedule Form State
-  const [scheduleData, setScheduleData] = useState({
-    audit_id: '',
-    prakalpa_name: '', 
-    location_id: '', 
-    start_date: '',
-    end_date: '',
-    time_from: '',
-    time_to: '',
-    assigned_auditors: [],
-    assigned_auditees: [] 
+  // Edit Form State
+  const [editForm, setEditForm] = useState({
+    schedule_start_date: "",
+    schedule_end_date: "",
+    coordinator_email: "",
+    status: ""
   });
 
+  // Filters
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [coordinatorFilter, setCoordinatorFilter] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  // Sorting & Pagination
+  const [sortConfig, setSortConfig] = useState({ key: "audit_id", direction: "descending" });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+
   const API_URL = config.API_URL;
+  const currentUser = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem("user") || "null"); } 
+    catch (e) { return null; }
+  }, []);
 
-  const getCurrentUser = () => {
-    const userStr = localStorage.getItem('user');
-    return userStr ? JSON.parse(userStr) : null;
-  };
-  const currentUser = getCurrentUser();
-
-  // 2. FETCH DATA
-  useEffect(() => { fetchData(); }, []);
-
-  const fetchData = async () => {
-    if (!currentUser) return;
-    try {
-      setLoading(true);
-      const payload = { userEmail: currentUser.email };
-      
-      const [userRes, planRes, locRes, metaRes] = await Promise.all([
-        fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'meta/users', ...payload }) }),
-        fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'audits/list', ...payload }) }),
-        fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'admin/prakalpas/list', ...payload }) }),
-        fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'meta/dropdowns/list', ...payload }) })
-      ]);
-
-      const [userData, planData, locData, metaData] = await Promise.all([
-        userRes.json(), planRes.json(), locRes.json(), metaRes.json()
-      ]);
-
-      if (userData.status === 'success') setUsers(userData.data || []);
-      if (planData.status === 'success') setPlans(planData.data || []);
-      if (locData.status === 'success') setPrakalpas(locData.data || []);
-      if (metaData.status === 'success') setDropdowns(metaData.data || []);
-
-    } catch (e) { console.error(e); showToast(e.message, 'error'); } finally { setLoading(false); }
+  // =========================
+  // 2. HELPERS
+  // =========================
+  const formatDate = (dateString) => {
+    if (!dateString) return "-";
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return dateString;
+    return `${String(date.getDate()).padStart(2, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${date.getFullYear()}`;
   };
 
-  const showToast = (msg, type = 'success') => {
-    setToast({ message: msg, type });
-  };
-
-  const formatMonthYear = (dateVal) => {
-    if (!dateVal) return '';
-    try {
-      const date = new Date(dateVal);
-      if (isNaN(date.getTime())) return dateVal;
-      return date.toLocaleString('default', { month: 'long', year: 'numeric' });
-    } catch (e) { return dateVal; }
-  };
-
-  // --- ACTIONS HANDLERS ---
-  const handleCreate = () => {
-    setFormData(initialFormState);
-    setIsEditMode(false);
-    setIsModalOpen(true);
-  };
-
-  const handleEdit = (plan) => {
-    let safeMonth = '';
-    if (plan.planned_date) {
-      const d = new Date(plan.planned_date);
-      if (!isNaN(d.getTime())) {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        safeMonth = `${y}-${m}`;
-      } else if (typeof plan.planned_date === 'string') {
-        safeMonth = plan.planned_date.substring(0, 7);
-      }
+  const parsePlannedDate = (dateStr) => {
+    if (!dateStr) return null;
+    let d = new Date(dateStr);
+    if (isNaN(d.getTime()) && typeof dateStr === "string" && dateStr.includes("-")) {
+      const parts = dateStr.split("-");
+      if (parts.length === 3) d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
     }
-
-    setFormData({
-      audit_id: plan.audit_id,
-      ay_year: plan.ay_year || '2025-26',
-      location_id: plan.location_id,
-      coordinator_email: plan.coordinator_email,
-      functional_area: plan.functional_area,
-      audit_areas: plan.audit_areas ? plan.audit_areas.split(',').map(s => s.trim()) : [],
-      planned_month: safeMonth
-    });
-    setIsEditMode(true);
-    setIsModalOpen(true);
+    return isNaN(d.getTime()) ? null : d;
   };
 
-  const handleDelete = async (plan) => {
-    if (!window.confirm(`Are you sure you want to delete Audit ${plan.audit_id}? This cannot be undone.`)) return;
+  const getStatusColor = (status) => {
+    switch (status) {
+      case "Completed": return "bg-purple-100 text-purple-700 border-purple-200";
+      case "Scheduled": return "bg-blue-100 text-blue-700 border-blue-200";
+      case "Planned": return "bg-yellow-100 text-yellow-700 border-yellow-200";
+      default: return "bg-gray-100 text-gray-600 border-gray-200";
+    }
+  };
+
+  const csvEscape = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+
+  // =========================
+  // 3. API ACTIONS
+  // =========================
+  const fetchPlans = useCallback(async () => {
     setLoading(true);
     try {
       const response = await fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({ action: 'audits/delete', userEmail: currentUser.email, audit_id: plan.audit_id })
+        method: "POST",
+        body: JSON.stringify({ action: "audits/plans", userEmail: currentUser?.email }),
       });
       const result = await response.json();
-      if (result.status === 'success') {
-        showToast("Audit deleted successfully.", 'success');
-        fetchData();
+
+      if (result?.status === "success" && Array.isArray(result.data)) {
+        const data = result.data.map((p) => ({
+          ...p,
+          audit_id: p.audit_id || "",
+          prakalpa_name: p.prakalpa_name || "Unknown Location",
+          coordinator_name: p.coordinator_name || "Unassigned",
+          functional_area: p.functional_area || "",
+          status: p.status || "Planned",
+          planned_date: p.planned_date || "",
+          dateObj: parsePlannedDate(p.planned_date),
+        }));
+        data.sort((a, b) => b.audit_id.localeCompare(a.audit_id));
+        setPlans(data);
       } else {
-        showToast(result.message, 'error');
+        setPlans([]);
       }
-    } catch (e) { showToast("Delete failed.", 'error'); } finally { setLoading(false); }
+    } catch (error) { setPlans([]); } 
+    finally { setLoading(false); }
+  }, [API_URL, currentUser]);
+
+  useEffect(() => { fetchPlans(); }, [fetchPlans]);
+
+  const handleDelete = async (auditId) => {
+    if (!window.confirm(`Are you sure you want to delete Audit ${auditId}?`)) return;
+    try {
+      const response = await fetch(API_URL, {
+        method: "POST",
+        body: JSON.stringify({ action: "audits/delete", audit_id: auditId, userEmail: currentUser?.email }),
+      });
+      const res = await response.json();
+      if (res?.status === "success") {
+        alert("Deleted successfully");
+        fetchPlans();
+      } else { alert("Error: " + (res?.message || "Failed")); }
+    } catch (e) { alert("Delete failed"); }
   };
 
-  // OPEN SCHEDULE MODAL
-  const handleOpenSchedule = (plan) => {
-    let tFrom = '', tTo = '';
-    if (plan.schedule_time && plan.schedule_time.includes('-')) {
-        const parts = plan.schedule_time.split('-').map(s => s.trim());
-        tFrom = parts[0];
-        tTo = parts[1];
-    }
-
-    setScheduleData({
-      audit_id: plan.audit_id,
-      prakalpa_name: plan.location_name,
-      location_id: plan.location_id, // 🟢 Important for filtering
-      start_date: plan.schedule_start_date ? new Date(plan.schedule_start_date).toISOString().split('T')[0] : '',
-      end_date: plan.schedule_end_date ? new Date(plan.schedule_end_date).toISOString().split('T')[0] : '',
-      time_from: tFrom,
-      time_to: tTo,
-      assigned_auditors: plan.assigned_auditors ? plan.assigned_auditors.split(',').map(s => s.trim()) : [],
-      assigned_auditees: plan.assigned_auditees ? plan.assigned_auditees.split(',').map(s => s.trim()) : []
-    });
-    setIsScheduleModalOpen(true);
-  };
-
-  const handleScheduleSubmit = async (e) => {
+  const handleEditSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
-
-    if (scheduleData.assigned_auditors.length === 0) {
-        showToast("Please assign at least one auditor.", 'error');
-        setLoading(false);
-        return;
-    }
-
+    if (!editData) return;
+    setSubmitting(true);
+    
+    // Construct payload for scheduling/editing
     const payload = {
-        audit_id: scheduleData.audit_id,
-        start_date: scheduleData.start_date,
-        end_date: scheduleData.end_date,
-        time: `${scheduleData.time_from} - ${scheduleData.time_to}`,
-        auditors: scheduleData.assigned_auditors.join(', '),
-        auditees: scheduleData.assigned_auditees.join(', ')
+        action: "audits/schedule", // Mapping to your existing schedule/edit endpoint
+        userEmail: currentUser?.email,
+        audit_id: editData.audit_id,
+        start_date: editForm.schedule_start_date,
+        end_date: editForm.schedule_end_date,
+        status: editForm.status
+        // Add other fields if your backend supports updating coordinator etc.
     };
 
     try {
-        const response = await fetch(API_URL, {
-            method: 'POST',
-            body: JSON.stringify({ action: 'audits/schedule', userEmail: currentUser.email, ...payload })
-        });
-        const result = await response.json();
-
-        if (result.status === 'success') {
-            showToast("✅ Audit Scheduled Successfully!", 'success');
-            setIsScheduleModalOpen(false);
-            fetchData();
+        const response = await fetch(API_URL, { method: "POST", body: JSON.stringify(payload) });
+        const res = await response.json();
+        if (res.status === 'success') {
+            alert("Audit updated successfully!");
+            setEditData(null);
+            fetchPlans();
         } else {
-            showToast(result.message, 'error');
+            alert("Update failed: " + res.message);
         }
-    } catch (e) { showToast("Network Error", 'error'); } finally { setLoading(false); }
+    } catch (error) {
+        alert("Network error during update");
+    } finally {
+        setSubmitting(false);
+    }
   };
 
-  const normalize = (str) => (str || '').toLowerCase().trim();
+  const openEditModal = (item) => {
+    setEditData(item);
+    // Pre-fill form
+    setEditForm({
+        schedule_start_date: item.schedule_start_date || "",
+        schedule_end_date: item.schedule_end_date || "",
+        coordinator_email: item.coordinator_email || "", // Assuming backend sends this
+        status: item.status || "Planned"
+    });
+  };
 
-  // FILTER LOGIC
-  const getFilteredFunctionalAreas = () => {
-    let areas = [...new Set(dropdowns.filter(d => d.category === 'Functional Area').map(d => d.value))];
-    if (currentUser.role === 'Audit Coordinator' && currentUser.specialization) {
-      const userSpecs = currentUser.specialization.split(',').map(s => normalize(s));
-      areas = areas.filter(a => userSpecs.includes(normalize(a)));
-    }
-    if (formData.location_id) {
-      const selectedPrakalpa = prakalpas.find(p => p.prakalpa_id === formData.location_id);
-      if (selectedPrakalpa && selectedPrakalpa.applicable_areas) {
-        const locAreas = selectedPrakalpa.applicable_areas.split(',').map(s => normalize(s));
-        areas = areas.filter(a => locAreas.includes(normalize(a)));
+  const handleExport = () => {
+    if (filteredPlans.length === 0) return alert("No data to export");
+    const headers = ["Audit ID", "Prakalpa", "Functional Area", "Coordinator", "Planned Date", "Status"];
+    const rows = filteredPlans.map(row => [
+        csvEscape(row.audit_id), csvEscape(row.prakalpa_name), csvEscape(row.functional_area),
+        csvEscape(row.coordinator_name), csvEscape(row.planned_date), csvEscape(row.status)
+    ]);
+    const csvContent = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `Audit_Plans_${new Date().toISOString().split("T")[0]}.csv`;
+    link.click();
+  };
+
+  // =========================
+  // 4. FILTERING & SORTING
+  // =========================
+  const uniqueStatuses = useMemo(() => [...new Set(plans.map((p) => p.status).filter(Boolean))].sort(), [plans]);
+  const uniqueCoordinators = useMemo(() => [...new Set(plans.map((p) => p.coordinator_name).filter(Boolean))].sort(), [plans]);
+
+  const filteredPlans = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    const hasDateFilter = Boolean(startDate || endDate);
+    return plans.filter((plan) => {
+      const matchesSearch = !term || 
+        (plan.audit_id || "").toLowerCase().includes(term) || 
+        (plan.prakalpa_name || "").toLowerCase().includes(term) ||
+        (plan.functional_area || "").toLowerCase().includes(term);
+      const matchesStatus = statusFilter ? plan.status === statusFilter : true;
+      const matchesCoordinator = coordinatorFilter ? plan.coordinator_name === coordinatorFilter : true;
+      if (hasDateFilter && !plan.dateObj) return false;
+      let matchesDate = true;
+      if (startDate && plan.dateObj) matchesDate = matchesDate && plan.dateObj >= new Date(startDate);
+      if (endDate && plan.dateObj) {
+        const end = new Date(endDate); end.setHours(23, 59, 59, 999);
+        matchesDate = matchesDate && plan.dateObj <= end;
       }
-    }
-    return areas.sort();
-  };
-
-  const availableAuditAreas = dropdowns.filter(d => 
-    d.category === 'Audit Area' && normalize(d.parent_value) === normalize(formData.functional_area)
-  ).sort((a,b) => (a.display_order || 0) - (b.display_order || 0));
-
-  const getCoordinatorOptions = () => {
-    let filtered = users;
-    if (!normalize(currentUser.role).includes('admin')) {
-      filtered = users.filter(u => u.email === currentUser.email);
-    }
-    if (formData.functional_area) {
-      const selectedArea = normalize(formData.functional_area);
-      filtered = filtered.filter(u => normalize(u.role) === 'admin' || normalize(u.specialization).includes(selectedArea));
-    }
-    return filtered.sort((a, b) => a.full_name.localeCompare(b.full_name));
-  };
-
-  const getAuditorOptions = () => {
-      return users.filter(u => {
-          const r = normalize(u.role);
-          return r.includes('coordinator') || r.includes('auditor') || r.includes('admin');
-      }).sort((a, b) => a.full_name.localeCompare(b.full_name));
-  };
-
-  // 🟢 SMART FILTER: Links ID (PRK005) to Name (JGRV)
-  const getAuditeeOptions = () => {
-      // 1. Get the Plan's Location ID (PRK005)
-      const targetId = normalize(scheduleData.location_id);
-      
-      // 2. Find the Prakalpa Name using the Master List
-      const targetPrakalpa = prakalpas.find(p => normalize(p.prakalpa_id) === targetId);
-      const targetName = targetPrakalpa ? normalize(targetPrakalpa.prakalpa_name) : '';
-
-      // Debugging: Check if the link works
-      // console.log(`Plan ID: ${targetId} => Found Name: ${targetName}`);
-
-      return users.filter(u => {
-          const r = normalize(u.role);
-          const isAuditee = r.includes('auditee');
-          
-          // 3. Compare User's Prakalpa Name vs. Target Name
-          // We normalize (lowercase/trim) to avoid mismatches like "JGRV" vs "jgrv "
-          const userPrakalpaName = normalize(u.prakalpa_name);
-          
-          // Logic: Match if User has the same ID OR the same Name
-          const matches = userPrakalpaName === targetName;
-
-          return isAuditee && matches; 
-      }).sort((a, b) => a.full_name.localeCompare(b.full_name));
-  };
-
-  const toggleAuditArea = (areaName) => {
-    setFormData(prev => {
-      const current = prev.audit_areas;
-      if (current.includes(areaName)) return { ...prev, audit_areas: current.filter(a => a !== areaName) };
-      else return { ...prev, audit_areas: [...current, areaName] };
+      return matchesSearch && matchesStatus && matchesCoordinator && matchesDate;
     });
-  };
+  }, [plans, searchTerm, statusFilter, coordinatorFilter, startDate, endDate]);
 
-  const toggleAssignedAuditor = (email) => {
-    setScheduleData(prev => {
-        const current = prev.assigned_auditors;
-        if (current.includes(email)) return { ...prev, assigned_auditors: current.filter(e => e !== email) };
-        else return { ...prev, assigned_auditors: [...current, email] };
+  const sortedPlans = useMemo(() => {
+    const items = [...filteredPlans];
+    const { key, direction } = sortConfig || {};
+    if (!key) return items;
+    const dir = direction === "ascending" ? 1 : -1;
+    items.sort((a, b) => {
+      if (key === "planned_date") return ((a.dateObj ? a.dateObj.getTime() : 0) - (b.dateObj ? b.dateObj.getTime() : 0)) * dir;
+      return (a[key] ?? "").toString().toLowerCase().localeCompare((b[key] ?? "").toString().toLowerCase()) * dir;
     });
+    return items;
+  }, [filteredPlans, sortConfig]);
+
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const currentItems = sortedPlans.slice(indexOfLastItem - itemsPerPage, indexOfLastItem);
+  const totalPages = Math.ceil(sortedPlans.length / itemsPerPage);
+  const requestSort = (key) => setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === "ascending" ? "descending" : "ascending" }));
+  
+  const SortIcon = ({ columnKey }) => {
+    if (sortConfig.key !== columnKey) return <ArrowUpDown size={14} className="text-gray-300" />;
+    return sortConfig.direction === "ascending" ? <ArrowUp size={14} className="text-blue-600" /> : <ArrowDown size={14} className="text-blue-600" />;
   };
 
-  const toggleAssignedAuditee = (email) => {
-    setScheduleData(prev => {
-        const current = prev.assigned_auditees;
-        if (current.includes(email)) return { ...prev, assigned_auditees: current.filter(e => e !== email) };
-        else return { ...prev, assigned_auditees: [...current, email] };
-    });
+  const clearFilters = () => {
+    setSearchTerm(""); setStatusFilter(""); setCoordinatorFilter(""); setStartDate(""); setEndDate(""); setCurrentPage(1);
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    if (formData.audit_areas.length === 0) {
-      showToast("Please select at least one specific Audit Area.", 'error');
-      setLoading(false);
-      return;
-    }
-    const payload = {
-      ay_year: formData.ay_year,
-      location_id: formData.location_id,
-      coordinator_email: formData.coordinator_email,
-      functional_area: formData.functional_area, 
-      audit_areas: formData.audit_areas.join(', '),     
-      planned_date: formData.planned_month,
-      audit_id: formData.audit_id 
-    };
-    const action = isEditMode ? 'audits/update' : 'audits/create';
-    try {
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({ action, userEmail: currentUser.email, ...payload })
-      });
-      const result = await response.json();
-      if (result.status === 'success') {
-        showToast(isEditMode ? "Plan Updated Successfully!" : "Plan Created Successfully!", 'success');
-        setIsModalOpen(false);
-        fetchData(); 
-      } else {
-        showToast(result.message, 'error');
-      }
-    } catch (error) { showToast("Network Error.", 'error'); } finally { setLoading(false); }
-  };
-
-  const filteredPlans = plans.filter(p => 
-    (p.location_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (p.audit_id || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
+  // =========================
+  // 5. RENDER UI
+  // =========================
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-          <Calendar className="text-blue-600" /> Audit Planning
-        </h1>
+    <div className="max-w-7xl mx-auto space-y-6 pb-20">
+      
+      {/* HEADER */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between bg-white p-5 rounded-xl shadow-sm border border-gray-100">
+        <div><h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Calendar className="text-blue-600" /> Audit Planning</h1></div>
         <div className="flex gap-2">
-           <div className="relative">
-             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-             <input type="text" placeholder="Search Plans..." 
-               className="pl-10 pr-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
-               value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-           </div>
-           <button onClick={fetchData} className="p-2 text-gray-500 hover:bg-gray-100 rounded"><RefreshCw size={20}/></button>
-           <button onClick={handleCreate} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow">
-             <Plus size={18} /> Create Plan
-           </button>
+            <button onClick={handleExport} className="bg-white border p-2 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-2 px-3"><Download size={18} /> CSV</button>
+            <button onClick={fetchPlans} className="bg-white border p-2 rounded-lg hover:bg-gray-50"><RefreshCw size={20} /></button>
+            <button onClick={() => navigate("/planning/new")} className="bg-blue-600 text-white px-5 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-700"><Plus size={18} /> Create Plan</button>
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden border border-gray-200">
-        <table className="w-full text-left text-sm text-gray-600">
-          <thead className="bg-gray-50 text-gray-700 uppercase font-bold border-b">
-            <tr>
-              <th className="px-6 py-4">Audit ID</th>
-              <th className="px-6 py-4">Prakalpa</th>
-              <th className="px-6 py-4">Functional Area</th>
-              <th className="px-6 py-4">Coordinator</th>
-              <th className="px-6 py-4">Planned Date</th>
-              <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {loading && <tr><td colSpan="7" className="p-6 text-center">Loading...</td></tr>}
-            {!loading && filteredPlans.map((row, i) => (
-              <tr key={i} className="hover:bg-gray-50">
-                <td className="px-6 py-4 font-mono text-xs text-blue-600 font-bold">{row.audit_id}</td>
-                <td className="px-6 py-4 font-bold text-gray-800 flex items-center gap-2">
-                  <MapPin size={14} className="text-blue-400"/> {row.location_name}
-                </td>
-                <td className="px-6 py-4">
-                    <div className="font-bold text-gray-700">{row.functional_area}</div>
-                    <div className="text-xs text-gray-500 mt-1 max-w-xs truncate" title={row.audit_areas}>
-                      {row.audit_areas}
-                    </div>
-                </td>
-                <td className="px-6 py-4 flex items-center gap-2"><User size={14} className="text-gray-400"/> {row.coordinator_name || row.coordinator_email}</td>
-                <td className="px-6 py-4 text-gray-700 font-medium">{formatMonthYear(row.planned_date)}</td>
-                <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs font-bold ${row.status === 'Planned' ? 'bg-yellow-100 text-yellow-800' : 'bg-purple-100 text-purple-800'}`}>{row.status}</span></td>
-                <td className="px-6 py-4 text-right flex justify-end gap-2">
-                   <button onClick={() => handleOpenSchedule(row)} className="text-purple-600 hover:bg-purple-50 p-1.5 rounded" title="Schedule Audit"><CalendarClock size={18} /></button>
-                   <button onClick={() => handleEdit(row)} className="text-gray-500 hover:bg-gray-100 p-1.5 rounded" title="Edit"><Edit size={16} /></button>
-                   <button onClick={() => handleDelete(row)} className="text-red-400 hover:bg-red-50 p-1.5 rounded" title="Delete"><Trash2 size={16} /></button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* FILTERS */}
+      <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
+        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Filters & Search</h3>
+        <div className="flex flex-col xl:flex-row gap-4">
+           <div className="relative flex-1"><Search className="absolute left-3 top-3 text-gray-400" size={18} /><input type="text" placeholder="Search ID, Prakalpa, Area..." className="w-full pl-10 pr-4 py-2.5 border rounded-lg outline-none" value={searchTerm} onChange={e => {setSearchTerm(e.target.value); setCurrentPage(1);}} /></div>
+           
+           <div className="relative w-full xl:w-48">
+             <Filter className="absolute left-3 top-3 text-gray-400" size={16} />
+             <select className="w-full pl-9 pr-8 py-2.5 border rounded-lg bg-white outline-none appearance-none" value={statusFilter} onChange={e => {setStatusFilter(e.target.value); setCurrentPage(1);}}>
+                <option value="">All Statuses</option>
+                {uniqueStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+             </select>
+           </div>
+
+           <div className="relative w-full xl:w-56">
+             <User className="absolute left-3 top-3 text-gray-400" size={16} />
+             <select className="w-full pl-9 pr-8 py-2.5 border rounded-lg bg-white outline-none appearance-none" value={coordinatorFilter} onChange={e => {setCoordinatorFilter(e.target.value); setCurrentPage(1);}}>
+                <option value="">All Coordinators</option>
+                {uniqueCoordinators.map(c => <option key={c} value={c}>{c}</option>)}
+             </select>
+           </div>
+
+           <div className="flex gap-2 items-center">
+             <input type="date" className="pl-3 pr-2 py-2.5 border rounded-lg text-sm text-gray-600 outline-none" value={startDate} onChange={e => {setStartDate(e.target.value); setCurrentPage(1);}} />
+             <span className="text-gray-400">-</span>
+             <input type="date" className="pl-3 pr-2 py-2.5 border rounded-lg text-sm text-gray-600 outline-none" value={endDate} onChange={e => {setEndDate(e.target.value); setCurrentPage(1);}} />
+           </div>
+
+           {(searchTerm || statusFilter || coordinatorFilter || startDate || endDate) && (
+             <button onClick={clearFilters} className="flex items-center gap-2 px-4 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg text-sm font-bold whitespace-nowrap"><X size={18} /> Clear</button>
+           )}
+        </div>
       </div>
 
-      {/* CREATE / EDIT MODAL */}
-      {isModalOpen && (
+      {/* TABLE */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                <th onClick={() => requestSort("audit_id")} className="px-6 py-4 text-xs font-bold text-gray-500 cursor-pointer select-none"><div className="flex items-center gap-2">ID <SortIcon columnKey="audit_id"/></div></th>
+                <th onClick={() => requestSort("prakalpa_name")} className="px-6 py-4 text-xs font-bold text-gray-500 cursor-pointer select-none"><div className="flex items-center gap-2">Prakalpa <SortIcon columnKey="prakalpa_name"/></div></th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500">Functional Area</th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500">Coordinator</th>
+                <th onClick={() => requestSort("planned_date")} className="px-6 py-4 text-xs font-bold text-gray-500 cursor-pointer select-none"><div className="flex items-center gap-2">Planned Date <SortIcon columnKey="planned_date"/></div></th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500">Status</th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {loading && <tr><td colSpan="7" className="p-12 text-center text-gray-500 animate-pulse">Loading...</td></tr>}
+              {!loading && currentItems.length === 0 && <tr><td colSpan="7" className="p-12 text-center text-gray-400">No audits found.</td></tr>}
+
+              {currentItems.map((plan) => (
+                <tr key={plan.audit_id} className="hover:bg-blue-50/50 transition">
+                  <td className="px-6 py-4 font-mono text-xs font-bold text-blue-600">{plan.audit_id}</td>
+                  <td className="px-6 py-4 text-sm font-medium text-gray-800 flex items-center gap-2"><MapPin size={14} className="text-gray-400" /> {plan.prakalpa_name}</td>
+                  <td className="px-6 py-4 text-sm text-gray-600"><span className="bg-gray-100 px-2 py-0.5 rounded text-xs">{plan.functional_area}</span></td>
+                  <td className="px-6 py-4 text-sm text-gray-600 flex items-center gap-2"><User size={14} className="text-gray-400" /> {plan.coordinator_name}</td>
+                  <td className="px-6 py-4 text-sm text-gray-600">{formatDate(plan.planned_date)}</td>
+                  <td className="px-6 py-4"><span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${getStatusColor(plan.status)}`}>{plan.status}</span></td>
+                  <td className="px-6 py-4 text-right flex justify-end gap-1">
+                    <button onClick={() => setViewData(plan)} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded" title="View"><Eye size={16} /></button>
+                    <button onClick={() => openEditModal(plan)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Edit/Schedule"><Edit3 size={16} /></button>
+                    <button onClick={() => handleDelete(plan.audit_id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded" title="Delete"><Trash2 size={16} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* PAGINATION */}
+        {!loading && filteredPlans.length > 0 && (
+          <div className="flex items-center justify-between px-6 py-4 bg-gray-50 border-t">
+             <div className="text-sm text-gray-500">Showing <b>{Math.min(filteredPlans.length, (currentPage - 1) * itemsPerPage + 1)}</b> - <b>{Math.min(filteredPlans.length, currentPage * itemsPerPage)}</b> of <b>{filteredPlans.length}</b></div>
+             <div className="flex gap-2">
+                <button onClick={() => setCurrentPage(p => Math.max(p - 1, 1))} disabled={currentPage === 1} className="px-3 py-1 bg-white border rounded hover:bg-gray-50 disabled:opacity-50"><ChevronLeft size={16}/></button>
+                <button onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages} className="px-3 py-1 bg-white border rounded hover:bg-gray-50 disabled:opacity-50"><ChevronRight size={16}/></button>
+             </div>
+          </div>
+        )}
+      </div>
+
+      {/* ================= MODALS ================= */}
+
+      {/* 🟢 VIEW MODAL */}
+      {viewData && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50 sticky top-0 z-10">
-              <h3 className="font-bold text-lg">{isEditMode ? `Edit Audit (${formData.audit_id})` : 'Create New Audit Plan'}</h3>
-              <button onClick={() => setIsModalOpen(false)}><X size={20} className="text-gray-400 hover:text-red-500"/></button>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="bg-gray-50 px-6 py-4 border-b flex justify-between items-center">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Eye className="text-blue-600"/> Audit Details</h3>
+              <button onClick={() => setViewData(null)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
             </div>
-            
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                   <label className="block text-xs font-bold text-gray-500 mb-1">Academic Year</label>
-                   <select className="w-full border rounded px-3 py-2" value={formData.ay_year} onChange={e => setFormData({...formData, ay_year: e.target.value})}>
-                     <option>2025-26</option>
-                     <option>2026-27</option>
-                   </select>
-                </div>
-                <div>
-                   <label className="block text-xs font-bold text-gray-500 mb-1">Planned Month</label>
-                   <input type="month" className="w-full border rounded px-3 py-2" required value={formData.planned_month} onChange={e => setFormData({...formData, planned_month: e.target.value})} />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Select Prakalpa</label>
-                <select className="w-full border rounded px-3 py-2 bg-white" required value={formData.location_id} onChange={e => setFormData({...formData, location_id: e.target.value, functional_area: '', audit_areas: []})}>
-                  <option value="">-- Choose Prakalpa --</option>
-                  {prakalpas.map((p,i) => <option key={i} value={p.prakalpa_id}>{p.prakalpa_name} ({p.place})</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Functional Area</label>
-                <select className={`w-full border rounded px-3 py-2 ${!formData.location_id ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} required disabled={!formData.location_id} value={formData.functional_area} onChange={e => setFormData({...formData, functional_area: e.target.value, audit_areas: []})} >
-                  <option value="">{!formData.location_id ? "-- Select Prakalpa First --" : "-- Choose Functional Area --"}</option>
-                  {getFilteredFunctionalAreas().map((f,i) => <option key={i} value={f}>{f}</option>)}
-                </select>
-              </div>
-              {formData.functional_area && (
-                <div className="border rounded p-3 bg-gray-50">
-                  <label className="block text-xs font-bold text-gray-500 mb-2">Select Specific Audit Areas</label>
-                  <div className="space-y-2 max-h-40 overflow-y-auto">
-                    {availableAuditAreas.length === 0 && <p className="text-xs text-gray-400">No specific areas found.</p>}
-                    {availableAuditAreas.map((area, i) => {
-                      const isSelected = formData.audit_areas.includes(area.value);
-                      return (
-                        <div key={i} className={`flex items-center gap-2 p-2 rounded cursor-pointer transition ${isSelected ? 'bg-blue-50 border border-blue-200' : 'hover:bg-gray-100'}`} onClick={() => toggleAuditArea(area.value)}>
-                          {isSelected ? <CheckSquare size={18} className="text-blue-600" /> : <Square size={18} className="text-gray-400" />}
-                          <span className={`text-sm ${isSelected ? 'text-blue-800 font-medium' : 'text-gray-600'}`}>{area.value}</span>
-                        </div>
-                      );
-                    })}
+            <div className="p-6 space-y-4">
+               <div className="grid grid-cols-2 gap-4">
+                  <div><label className="text-xs font-bold text-gray-400 uppercase">Audit ID</label><p className="font-mono text-blue-600 font-bold">{viewData.audit_id}</p></div>
+                  <div><label className="text-xs font-bold text-gray-400 uppercase">Status</label>
+                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold border ${getStatusColor(viewData.status)}`}>{viewData.status}</span>
                   </div>
-                </div>
-              )}
-              <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Assign Coordinator</label>
-                <select className="w-full border rounded px-3 py-2 bg-white" required value={formData.coordinator_email} onChange={e => setFormData({...formData, coordinator_email: e.target.value})}>
-                  <option value="">-- Choose User --</option>
-                  {getCoordinatorOptions().map((u,i) => (<option key={i} value={u.email}>{u.full_name} ({u.role})</option>))}
-                </select>
-              </div>
-              <button disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition shadow">
-                {loading ? 'Processing...' : (isEditMode ? 'Update Plan' : 'Create Plan')}
-              </button>
-            </form>
+                  <div><label className="text-xs font-bold text-gray-400 uppercase">Prakalpa</label><p className="text-gray-800 font-medium">{viewData.prakalpa_name}</p></div>
+                  <div><label className="text-xs font-bold text-gray-400 uppercase">Functional Area</label><p className="text-gray-800">{viewData.functional_area}</p></div>
+                  <div><label className="text-xs font-bold text-gray-400 uppercase">Coordinator</label><p className="text-gray-800">{viewData.coordinator_name}</p></div>
+                  <div><label className="text-xs font-bold text-gray-400 uppercase">Planned Date</label><p className="text-gray-800">{formatDate(viewData.planned_date)}</p></div>
+               </div>
+               {viewData.schedule_start_date && (
+                   <div className="bg-blue-50 p-3 rounded border border-blue-100 mt-4">
+                       <h4 className="text-xs font-bold text-blue-700 uppercase mb-2">Schedule Details</h4>
+                       <p className="text-sm text-blue-900"><strong>Start:</strong> {viewData.schedule_start_date}</p>
+                       <p className="text-sm text-blue-900"><strong>End:</strong> {viewData.schedule_end_date}</p>
+                   </div>
+               )}
+            </div>
+            <div className="px-6 py-4 bg-gray-50 border-t flex justify-end">
+              <button onClick={() => setViewData(null)} className="px-4 py-2 bg-white border rounded hover:bg-gray-50 text-sm font-bold">Close</button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* SCHEDULE MODAL */}
-      {isScheduleModalOpen && (
+      {/* 🟢 EDIT / SCHEDULE MODAL */}
+      {editData && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
-              <h3 className="font-bold text-lg text-purple-700 flex items-center gap-2">
-                 <CalendarClock size={20}/> Schedule Audit ({scheduleData.audit_id})
-              </h3>
-              <button onClick={() => setIsScheduleModalOpen(false)}><X size={20} className="text-gray-400 hover:text-red-500"/></button>
-            </div>
-            
-            <form onSubmit={handleScheduleSubmit} className="p-6 space-y-4">
-              <div className="bg-gray-50 p-3 rounded border text-sm text-gray-600">
-                <p><strong>Prakalpa:</strong> {scheduleData.prakalpa_name}</p>
-              </div>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+            <form onSubmit={handleEditSubmit}>
+                <div className="bg-blue-600 px-6 py-4 border-b flex justify-between items-center">
+                <h3 className="text-lg font-bold text-white flex items-center gap-2"><CalendarClock/> Schedule / Edit Audit</h3>
+                <button type="button" onClick={() => setEditData(null)} className="text-blue-200 hover:text-white"><X size={20}/></button>
+                </div>
+                
+                <div className="p-6 space-y-4">
+                    <div className="bg-blue-50 p-3 rounded text-sm text-blue-800 mb-4">
+                        Editing <strong>{editData.audit_id}</strong> for <strong>{editData.prakalpa_name}</strong>
+                    </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                 <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">Start Date</label>
-                    <input type="date" required className="w-full border rounded px-3 py-2" value={scheduleData.start_date} onChange={e => setScheduleData({...scheduleData, start_date: e.target.value})} />
-                 </div>
-                 <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">End Date</label>
-                    <input type="date" required className="w-full border rounded px-3 py-2" min={scheduleData.start_date} value={scheduleData.end_date} onChange={e => setScheduleData({...scheduleData, end_date: e.target.value})} />
-                 </div>
-              </div>
-
-              <div>
-                  <label className="block text-xs font-bold text-gray-500 mb-1">Audit Time (From - To)</label>
-                  <div className="flex items-center gap-2">
-                     <input type="time" required className="w-full border rounded px-3 py-2" value={scheduleData.time_from} onChange={e => setScheduleData({...scheduleData, time_from: e.target.value})} />
-                     <span className="text-gray-400">-</span>
-                     <input type="time" required className="w-full border rounded px-3 py-2" value={scheduleData.time_to} onChange={e => setScheduleData({...scheduleData, time_to: e.target.value})} />
-                  </div>
-              </div>
-
-              {/* ASSIGN AUDITORS (Filtered) */}
-              <div className="border rounded p-3 bg-white">
-                  <label className="block text-xs font-bold text-gray-500 mb-2">Assign Auditors (Multi-Select)</label>
-                  <div className="space-y-2 max-h-40 overflow-y-auto">
-                    {getAuditorOptions().length === 0 && <p className="text-xs text-red-400">No Auditors/Coordinators found.</p>}
-                    {getAuditorOptions().map((user, i) => {
-                      const isSelected = scheduleData.assigned_auditors.includes(user.email);
-                      return (
-                        <div key={i} className={`flex items-center gap-2 p-2 rounded cursor-pointer transition ${isSelected ? 'bg-purple-50 border border-purple-200' : 'hover:bg-gray-100'}`} onClick={() => toggleAssignedAuditor(user.email)}>
-                          {isSelected ? <CheckSquare size={18} className="text-purple-600" /> : <Square size={18} className="text-gray-400" />}
-                          <span className={`text-sm ${isSelected ? 'text-purple-800 font-medium' : 'text-gray-600'}`}>{user.full_name} ({user.role})</span>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">Start Date</label>
+                            <input type="date" className="w-full border rounded p-2 text-sm" 
+                                value={editForm.schedule_start_date} onChange={e => setEditForm({...editForm, schedule_start_date: e.target.value})} required />
                         </div>
-                      );
-                    })}
-                  </div>
-              </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">End Date</label>
+                            <input type="date" className="w-full border rounded p-2 text-sm" 
+                                value={editForm.schedule_end_date} onChange={e => setEditForm({...editForm, schedule_end_date: e.target.value})} required />
+                        </div>
+                    </div>
 
-              {/* 🟢 ASSIGN AUDITEES (Filtered by Location) */}
-              <div className="border rounded p-3 bg-white">
-                  <label className="block text-xs font-bold text-gray-500 mb-2">Assign Auditees (Multi-Select)</label>
-                  <div className="space-y-2 max-h-40 overflow-y-auto">
-                    {getAuditeeOptions().length === 0 ? (
-                        <p className="text-xs text-red-400 p-2 border border-dashed border-red-200 bg-red-50 rounded">
-                            No auditees assigned for {scheduleData.prakalpa_name || 'this Prakalpa'}.
-                        </p>
-                    ) : (
-                        getAuditeeOptions().map((user, i) => {
-                          const isSelected = scheduleData.assigned_auditees.includes(user.email);
-                          return (
-                            <div key={i} className={`flex items-center gap-2 p-2 rounded cursor-pointer transition ${isSelected ? 'bg-blue-50 border border-blue-200' : 'hover:bg-gray-100'}`} onClick={() => toggleAssignedAuditee(user.email)}>
-                              {isSelected ? <CheckSquare size={18} className="text-blue-600" /> : <Square size={18} className="text-gray-400" />}
-                              <span className={`text-sm ${isSelected ? 'text-blue-800 font-medium' : 'text-gray-600'}`}>{user.full_name} ({user.role})</span>
-                            </div>
-                          );
-                        })
-                    )}
-                  </div>
-              </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">Status</label>
+                        <select className="w-full border rounded p-2 text-sm bg-white"
+                             value={editForm.status} onChange={e => setEditForm({...editForm, status: e.target.value})}>
+                             <option value="Planned">Planned</option>
+                             <option value="Scheduled">Scheduled</option>
+                             <option value="Completed">Completed</option>
+                        </select>
+                    </div>
+                </div>
 
-              <button disabled={loading} className="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 transition shadow">
-                {loading ? 'Scheduling...' : 'Confirm Schedule'}
-              </button>
+                <div className="px-6 py-4 bg-gray-50 border-t flex justify-end gap-2">
+                    <button type="button" onClick={() => setEditData(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded text-sm font-bold">Cancel</button>
+                    <button type="submit" disabled={submitting} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-bold flex items-center gap-2">
+                        {submitting ? "Saving..." : <><Save size={16}/> Save Changes</>}
+                    </button>
+                </div>
             </form>
           </div>
         </div>
