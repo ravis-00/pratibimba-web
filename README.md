@@ -14,3 +14,46 @@ The React Compiler is not enabled on this template because of its impact on dev 
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+
+```
+pratibimba-web
+├─ .env
+├─ .env.development
+├─ .env.production
+├─ backend
+│  └─ main.py
+├─ eslint.config.js
+├─ index.html
+├─ package-lock.json
+├─ package.json
+├─ postcss.config.js
+├─ public
+│  └─ vite.svg
+├─ README.md
+├─ src
+│  ├─ api.js
+│  ├─ App.css
+│  ├─ App.jsx
+│  ├─ assets
+│  │  └─ react.svg
+│  ├─ components
+│  │  └─ MainLayout.jsx
+│  ├─ config.js
+│  ├─ firebase.js
+│  ├─ index.css
+│  ├─ main.jsx
+│  └─ pages
+│     ├─ ActionItems.jsx
+│     ├─ AuditExecution.jsx
+│     ├─ Dashboard.jsx
+│     ├─ LocationManagement.jsx
+│     ├─ Login.jsx
+│     ├─ MasterSettings.jsx
+│     ├─ OpenReports.jsx
+│     ├─ PlannedAudits.jsx
+│     ├─ ScheduledAudits.jsx
+│     └─ UserManagement.jsx
+├─ tailwind.config.js
+└─ vite.config.js
+
+```

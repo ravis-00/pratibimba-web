@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Settings, Edit, Trash2, X, RefreshCw } from 'lucide-react';
+import { supabase } from '../supabase'; // ✅ Import Supabase
 
 const MasterSettings = () => {
   // 1. STATE MANAGEMENT
@@ -11,9 +12,9 @@ const MasterSettings = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   
-  // 🟢 STANDARDIZED FORM STATE (Matches DB 'parent_value')
+  // Form State
   const [formData, setFormData] = useState({
-    id: '',
+    id: null,
     category: '',
     value: '',
     parent_value: '', 
@@ -21,57 +22,47 @@ const MasterSettings = () => {
     status: 'Active'
   });
 
-  // ⚠️ USE YOUR LATEST DEPLOYED URL
-  const API_URL = "https://script.google.com/macros/s/AKfycbydpsKTfB6uN8wYknoQMGntXDwmggXQdfmLGdfSHUxoS9ktImYk8oxcw_X-IE_HtGeoFA/exec";
-
-  const getUserEmail = () => {
-    const userStr = localStorage.getItem('user');
-    return userStr ? JSON.parse(userStr).email : null;
-  };
-
   // 2. FETCH DATA
   useEffect(() => {
     fetchData();
-  }, []);
+  }, []); // Fetch all dropdowns once on load
 
   const fetchData = async () => {
-    const email = getUserEmail();
-    if (!email) return;
-
     try {
       setLoading(true);
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({ action: 'meta/dropdowns/list', userEmail: email })
-      });
-      const data = await res.json();
-      if (data.status === 'success') {
-        // Sort: Display Order ascending
-        const sorted = (data.data || []).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
-        setItems(sorted);
-      }
+      
+      const { data, error } = await supabase
+        .from('master_dropdowns')
+        .select('*')
+        .order('display_order', { ascending: true }); // Sort by Order
+
+      if (error) throw error;
+      setItems(data || []);
+      
     } catch (e) {
       console.error("Fetch Error:", e);
+      alert("Error loading settings: " + e.message);
     } finally {
       setLoading(false);
     }
   };
 
   // 3. DERIVED LISTS
-  // Used for the "Parent" dropdown
+  // Used for the "Parent" dropdown (Audit Areas belong to Functional Areas)
   const functionalAreas = items.filter(i => i.category === 'Functional Area' && i.status === 'Active');
-  // Used for the Table Display
+  
+  // Used for the Table Display (Filter by current tab)
   const currentTabItems = items.filter(i => i.category === activeTab);
 
   // 4. HANDLERS
   const handleAddNew = () => {
     setIsEditing(false);
     setFormData({ 
-      id: '', 
+      id: null, 
       category: activeTab, 
       value: '', 
       parent_value: '', 
-      display_order: currentTabItems.length + 1, 
+      display_order: currentTabItems.length + 1, // Auto-increment order
       status: 'Active' 
     });
     setIsModalOpen(true);
@@ -79,31 +70,35 @@ const MasterSettings = () => {
 
   const handleEdit = (item) => {
     setIsEditing(true);
-    setFormData({ ...item });
+    setFormData({ 
+      id: item.id,
+      category: item.category,
+      value: item.value,
+      parent_value: item.parent_value || '',
+      display_order: item.display_order,
+      status: item.status
+    });
     setIsModalOpen(true);
   };
 
-  // 🟢 RESTORED: Soft Delete (Deactivate)
+  // Soft Delete (Set Status to Inactive)
   const handleSoftDelete = async (item) => {
-    if(!window.confirm(`Are you sure you want to deactivate "${item.value}"?`)) return;
-    
-    setLoading(true);
-    const email = getUserEmail();
+    if (!window.confirm(`Are you sure you want to deactivate "${item.value}"?`)) return;
     
     try {
-      // We don't delete row, just set status to Inactive
-      await fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({ 
-          action: 'meta/dropdowns/update', 
-          userEmail: email, 
-          id: item.id,
-          status: 'Inactive' 
-        })
-      });
-      fetchData(); 
+      setLoading(true);
+      const { error } = await supabase
+        .from('master_dropdowns')
+        .update({ status: 'Inactive' })
+        .eq('id', item.id);
+
+      if (error) throw error;
+      
+      // Update local state without refetching
+      setItems(items.map(i => i.id === item.id ? { ...i, status: 'Inactive' } : i));
+      
     } catch (error) { 
-      alert("Error updating status."); 
+      alert("Error updating status: " + error.message); 
     } finally { 
       setLoading(false); 
     }
@@ -111,26 +106,41 @@ const MasterSettings = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const email = getUserEmail();
     setLoading(true);
-    
-    const action = isEditing ? 'meta/dropdowns/update' : 'meta/dropdowns/create';
+
+    const payload = {
+      category: formData.category,
+      value: formData.value,
+      parent_value: formData.parent_value,
+      display_order: formData.display_order,
+      status: formData.status
+    };
 
     try {
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({ action, userEmail: email, ...formData })
-      });
-      const result = await response.json();
-      
-      if (result.status === 'success') {
-         setIsModalOpen(false);
-         fetchData();
+      if (isEditing) {
+        // ✅ UPDATE
+        const { error } = await supabase
+          .from('master_dropdowns')
+          .update(payload)
+          .eq('id', formData.id);
+
+        if (error) throw error;
       } else {
-         alert("Error: " + result.message); 
+        // ✅ CREATE
+        const { error } = await supabase
+          .from('master_dropdowns')
+          .insert([payload]);
+
+        if (error) throw error;
       }
+
+      setIsModalOpen(false);
+      fetchData(); // Refresh list
+      alert(isEditing ? "Updated successfully!" : "Added successfully!");
+      
     } catch (error) { 
-      alert("Network Error saving."); 
+      console.error("Save Error:", error);
+      alert("Error saving: " + error.message); 
     } finally { 
       setLoading(false); 
     }
@@ -212,8 +222,8 @@ const MasterSettings = () => {
                   </span>
                 </td>
                 <td className="px-6 py-3 text-right flex justify-end gap-2">
-                  <button onClick={() => handleEdit(item)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Edit size={16}/></button>
-                  <button onClick={() => handleSoftDelete(item)} className="text-red-400 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
+                  <button onClick={() => handleEdit(item)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded" title="Edit"><Edit size={16}/></button>
+                  <button onClick={() => handleSoftDelete(item)} className="text-red-400 hover:bg-red-50 p-1.5 rounded" title="Deactivate"><Trash2 size={16}/></button>
                 </td>
               </tr>
             ))}

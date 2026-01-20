@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, MapPin, Edit, X, Save, RefreshCw, Search, Trash2 } from 'lucide-react'; // 🟢 Added Trash2 Icon
+import { Plus, MapPin, Edit, X, Save, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { supabase } from '../supabase'; // ✅ Import Supabase
 
 const LocationManagement = () => {
   const [prakalpas, setPrakalpas] = useState([]);
-  const [dropdowns, setDropdowns] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -21,91 +21,63 @@ const LocationManagement = () => {
     applicable_areas: [] 
   });
 
-  // ⚠️ USE YOUR LATEST DEPLOYED URL
-  const API_URL = "https://script.google.com/macros/s/AKfycbydpsKTfB6uN8wYknoQMGntXDwmggXQdfmLGdfSHUxoS9ktImYk8oxcw_X-IE_HtGeoFA/exec";
-
-  const getUserEmail = () => {
-    const userStr = localStorage.getItem('user');
-    if (!userStr) return null;
-    return JSON.parse(userStr).email;
-  };
+  // ✅ Hardcoded options for now (Replace with DB fetch later if needed)
+  const typeOptions = [
+    "Yoga Kendra", "School", "Slum Development", "Health Center", "Vocational Training"
+  ];
+  
+  const areaOptions = [
+    "Administration", "Finance", "HR", "Operations", "IT", "Marketing"
+  ];
 
   useEffect(() => {
     fetchData();
   }, []);
 
   const fetchData = async () => {
-    const email = getUserEmail();
-    if (!email) return;
-
     try {
       setLoading(true);
-      
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({ action: 'admin/prakalpas/list', userEmail: email })
-      });
-      const data = await res.json();
-      if (data.status === 'success') setPrakalpas(data.data || []); 
+      // ✅ Fetch directly from Supabase
+      const { data, error } = await supabase
+        .from('master_prakalpas')
+        .select('*')
+        .order('prakalpa_id', { ascending: true });
 
-      const metaRes = await fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({ action: 'meta/dropdowns/list', userEmail: email })
-      });
-      const metaData = await metaRes.json();
-      if (metaData.status === 'success') setDropdowns(metaData.data || []);
-
+      if (error) throw error;
+      setPrakalpas(data || []); 
     } catch (e) { 
       console.error("Fetch Error:", e); 
+      alert("Error loading data: " + e.message);
     } finally { 
       setLoading(false); 
     }
   };
 
-  // 🟢 DELETE FUNCTION
   const handleDelete = async (id, name) => {
     if (!window.confirm(`Are you sure you want to delete "${name}"? This cannot be undone.`)) {
       return;
     }
 
-    const email = getUserEmail();
-    setLoading(true);
-
     try {
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({ 
-          action: 'admin/prakalpas/delete', 
-          userEmail: email,
-          prakalpa_id: id 
-        })
-      });
-      const data = await res.json();
-      
-      if (data.status === 'success') {
-        fetchData(); // Refresh list
-      } else {
-        alert("Failed to delete: " + (data.message || "Unknown error"));
-      }
+      setLoading(true);
+      // ✅ Delete from Supabase
+      const { error } = await supabase
+        .from('master_prakalpas')
+        .delete()
+        .eq('prakalpa_id', id);
+
+      if (error) throw error;
+
+      // Refresh local list without refetching everything
+      setPrakalpas(prev => prev.filter(item => item.prakalpa_id !== id));
+      alert("Record deleted successfully.");
     } catch (error) {
-      alert("Error deleting record.");
+      console.error("Delete Error:", error);
+      alert("Error deleting record: " + error.message);
     } finally {
       setLoading(false);
     }
   };
-
-  const filteredPrakalpas = prakalpas.filter(p => {
-    const searchLower = searchTerm.toLowerCase();
-    return (
-      (p.prakalpa_name || '').toLowerCase().includes(searchLower) ||
-      (p.place || '').toLowerCase().includes(searchLower) ||
-      (p.prakalpa_id || '').toLowerCase().includes(searchLower) ||
-      (p.prakalpa_type || '').toLowerCase().includes(searchLower)
-    );
-  });
-
-  const typeOptions = dropdowns.filter(d => d.category === 'Prakalpa Type');
-  const areaOptions = dropdowns.filter(d => d.category === 'Functional Area');
 
   const toggleArea = (area) => {
     setFormData(prev => {
@@ -120,7 +92,16 @@ const LocationManagement = () => {
 
   const handleAddNew = () => {
     setIsEditing(false);
-    setFormData({ prakalpa_id: '', prakalpa_name: '', prakalpa_type: '', place: '', pramukh_email: '', applicable_areas: [] });
+    // Generate a temporary ID or let user input it? 
+    // For now, let's leave ID empty for user to type, or auto-generate if your DB handles it.
+    setFormData({ 
+      prakalpa_id: '', 
+      prakalpa_name: '', 
+      prakalpa_type: '', 
+      place: '', 
+      pramukh_email: '', 
+      applicable_areas: [] 
+    });
     setIsModalOpen(true);
   };
 
@@ -131,33 +112,68 @@ const LocationManagement = () => {
       prakalpa_name: row.prakalpa_name,
       prakalpa_type: row.prakalpa_type,
       place: row.place,
-      pramukh_email: row.pramukh_email,
-      applicable_areas: row.applicable_areas ? row.applicable_areas.split(',').map(s=>s.trim()) : []
+      pramukh_email: row.pramukh_email || '', // Handle nulls
+      // Convert comma-separated string back to array for the form
+      applicable_areas: row.applicable_areas ? row.applicable_areas.split(',').map(s => s.trim()) : []
     });
     setIsModalOpen(true);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const email = getUserEmail();
     setLoading(true);
     
-    const action = isEditing ? 'admin/prakalpas/update' : 'admin/prakalpas/create';
-    const payload = { ...formData, applicable_areas: formData.applicable_areas.join(', ') };
+    // Prepare payload (Convert array back to string for Text column)
+    const payload = { 
+      prakalpa_name: formData.prakalpa_name,
+      prakalpa_type: formData.prakalpa_type,
+      place: formData.place,
+      pramukh_email: formData.pramukh_email,
+      applicable_areas: formData.applicable_areas.join(', ')
+    };
 
     try {
-      await fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({ action, userEmail: email, ...payload })
-      });
+      if (isEditing) {
+        // ✅ UPDATE
+        const { error } = await supabase
+          .from('master_prakalpas')
+          .update(payload)
+          .eq('prakalpa_id', formData.prakalpa_id);
+        
+        if (error) throw error;
+      } else {
+        // ✅ CREATE
+        // Ensure ID is provided for new records
+        if (!formData.prakalpa_id) throw new Error("Prakalpa ID is required.");
+        
+        const { error } = await supabase
+          .from('master_prakalpas')
+          .insert([{ ...payload, prakalpa_id: formData.prakalpa_id }]);
+
+        if (error) throw error;
+      }
+
       setIsModalOpen(false);
-      fetchData(); 
+      fetchData(); // Refresh list to show changes
+      alert(isEditing ? "Updated successfully!" : "Added successfully!");
     } catch (error) { 
-      alert("Error saving."); 
+      console.error("Save Error:", error);
+      alert("Error saving: " + error.message); 
     } finally { 
       setLoading(false); 
     }
   };
+
+  // Filter Logic
+  const filteredPrakalpas = prakalpas.filter(p => {
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      (p.prakalpa_name || '').toLowerCase().includes(searchLower) ||
+      (p.place || '').toLowerCase().includes(searchLower) ||
+      (p.prakalpa_id || '').toLowerCase().includes(searchLower) ||
+      (p.prakalpa_type || '').toLowerCase().includes(searchLower)
+    );
+  });
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -208,8 +224,8 @@ const LocationManagement = () => {
                </td></tr>
             )}
 
-            {!loading && filteredPrakalpas.map((row, i) => (
-              <tr key={i} className="hover:bg-gray-50 transition">
+            {!loading && filteredPrakalpas.map((row) => (
+              <tr key={row.prakalpa_id} className="hover:bg-gray-50 transition">
                 <td className="px-6 py-4 font-mono text-xs text-gray-400">{row.prakalpa_id}</td>
                 <td className="px-6 py-4 font-bold text-gray-800">{row.prakalpa_name}</td>
                 <td className="px-6 py-4"><span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold">{row.prakalpa_type}</span></td>
@@ -219,7 +235,6 @@ const LocationManagement = () => {
                   <button onClick={() => handleEdit(row)} className="text-blue-600 hover:bg-blue-50 p-2 rounded transition" title="Edit">
                     <Edit size={16}/>
                   </button>
-                  {/* 🟢 DELETE BUTTON */}
                   <button onClick={() => handleDelete(row.prakalpa_id, row.prakalpa_name)} className="text-red-500 hover:bg-red-50 p-2 rounded transition" title="Delete">
                     <Trash2 size={16}/>
                   </button>
@@ -239,6 +254,20 @@ const LocationManagement = () => {
             </div>
             
             <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
+              
+              {/* ID Field - Editable only when adding new */}
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Prakalpa ID</label>
+                <input 
+                  required 
+                  disabled={isEditing} // Cannot change ID once created
+                  className={`w-full border border-gray-300 rounded px-3 py-2 ${isEditing ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                  value={formData.prakalpa_id} 
+                  onChange={e => setFormData({...formData, prakalpa_id: e.target.value})} 
+                  placeholder="e.g. PRK001"
+                />
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Prakalpa Name</label>
                 <input required className="w-full border border-gray-300 rounded px-3 py-2" value={formData.prakalpa_name} onChange={e => setFormData({...formData, prakalpa_name: e.target.value})} />
@@ -248,7 +277,7 @@ const LocationManagement = () => {
                   <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Type</label>
                   <select required className="w-full border border-gray-300 rounded px-3 py-2 bg-white" value={formData.prakalpa_type} onChange={e => setFormData({...formData, prakalpa_type: e.target.value})}>
                     <option value="">-- Select Type --</option>
-                    {typeOptions.map((t,i) => <option key={i} value={t.value}>{t.value}</option>)}
+                    {typeOptions.map((t,i) => <option key={i} value={t}>{t}</option>)}
                   </select>
                 </div>
                 <div>
@@ -263,12 +292,17 @@ const LocationManagement = () => {
               <div>
                 <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">Applicable Areas</label>
                 <div className="grid grid-cols-2 gap-2 bg-gray-50 p-3 rounded border border-gray-200">
-                  {areaOptions.length > 0 ? areaOptions.map((area, idx) => (
+                  {areaOptions.map((area, idx) => (
                     <label key={idx} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-white p-1 rounded transition">
-                      <input type="checkbox" checked={formData.applicable_areas.includes(area.value)} onChange={() => toggleArea(area.value)} className="rounded text-green-600 focus:ring-green-500"/>
-                      {area.value}
+                      <input 
+                        type="checkbox" 
+                        checked={formData.applicable_areas.includes(area)} 
+                        onChange={() => toggleArea(area)} 
+                        className="rounded text-green-600 focus:ring-green-500"
+                      />
+                      {area}
                     </label>
-                  )) : <div className="col-span-2 text-xs text-red-500">No Areas found in Master.</div>}
+                  ))}
                 </div>
               </div>
               <button disabled={loading} className="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition flex justify-center gap-2 shadow-lg">

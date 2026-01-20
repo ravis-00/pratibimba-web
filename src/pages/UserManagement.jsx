@@ -1,23 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Search, UserCheck, X } from 'lucide-react';
+import { Plus, Edit, Trash2, UserCheck, X } from 'lucide-react';
+import { supabase } from '../supabase'; // ✅ Connect to Supabase
 
 const UserManagement = () => {
-  // State for Data
+  // State
   const [users, setUsers] = useState([]);
-  const [locations, setLocations] = useState([]); // 🟢 Store locations for dropdown
+  const [prakalpaOptions, setPrakalpaOptions] = useState([]); // Stores list of projects for dropdown
   const [loading, setLoading] = useState(true);
   
-  // State for UI
+  // UI State
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isEditing, setIsEditing] = useState(false); // 🟢 Track Mode (Add vs Edit)
+  const [isEditing, setIsEditing] = useState(false);
   
   // Form State
   const [formData, setFormData] = useState({
-    full_name: '', email: '', role: 'Auditee', prakalpa: '', phone_number: '', password: 'password123', status: 'Active'
+    id: null, // Store ID for updates
+    full_name: '', 
+    email: '', 
+    role: 'Auditee', 
+    prakalpa: '', 
+    phone_number: '', 
+    password: 'password123', 
+    status: 'Active'
   });
-
-  // ⚠️ HARDCODED URL (To bypass .env issues for now)
-  const API_URL = "https://script.google.com/macros/s/AKfycbydpsKTfB6uN8wYknoQMGntXDwmggXQdfmLGdfSHUxoS9ktImYk8oxcw_X-IE_HtGeoFA/exec";
 
   // 1. Fetch Data on Load
   useEffect(() => {
@@ -28,50 +33,73 @@ const UserManagement = () => {
     try {
       setLoading(true);
       
-      // Fetch Users
-      const userRes = await fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({ action: 'admin/users/list', userEmail: 'admin@test.com' })
-      });
-      const userData = await userRes.json();
-      
-      // Fetch Locations (for Prakalpa Dropdown)
-      const locRes = await fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({ action: 'meta/locations', userEmail: 'admin@test.com' })
-      });
-      const locData = await locRes.json();
+      // A. Fetch Users
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .order('full_name', { ascending: true });
 
-      if (userData.status === 'success') setUsers(userData.data);
-      if (locData.status === 'success') setLocations(locData.data);
+      if (userError) throw userError;
+      setUsers(userData || []);
+
+      // B. Fetch Prakalpas (for Dropdown)
+      const { data: prakalpaData, error: locError } = await supabase
+        .from('master_prakalpas')
+        .select('prakalpa_name')
+        .order('prakalpa_name', { ascending: true });
+
+      if (locError) throw locError;
+
+      // Extract unique names for the dropdown
+      const uniqueNames = [...new Set(prakalpaData.map(item => item.prakalpa_name))];
+      setPrakalpaOptions(uniqueNames);
 
     } catch (error) {
       console.error("Error loading data:", error);
+      alert("Error loading data: " + error.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // 🟢 Helper: Get Unique Prakalpa Names for Dropdown
-  const uniquePrakalpas = [...new Set(locations.map(l => l.prakalpa_name).filter(Boolean))];
+  // 2. Handle Delete
+  const handleDelete = async (id, name) => {
+    if (!window.confirm(`Are you sure you want to delete ${name}?`)) return;
 
-  // 2. Open Modal for NEW User
+    try {
+      setLoading(true);
+      const { error } = await supabase.from('users').delete().eq('id', id);
+      if (error) throw error;
+      
+      // Update UI locally
+      setUsers(users.filter(u => u.id !== id));
+      alert("User deleted successfully.");
+    } catch (error) {
+      alert("Error deleting: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 3. Open Modal for NEW User
   const handleAddNew = () => {
-    setIsEditing(false); // Set to "Create Mode"
+    setIsEditing(false);
     setFormData({
+      id: null,
       full_name: '', email: '', role: 'Auditee', prakalpa: '', phone_number: '', password: 'password123', status: 'Active'
     });
     setIsModalOpen(true);
   };
 
-  // 3. Open Modal for EDIT User
+  // 4. Open Modal for EDIT User
   const handleEdit = (user) => {
-    setIsEditing(true); // Set to "Edit Mode"
+    setIsEditing(true);
     setFormData({
+      id: user.id, // Capture the ID for the update logic
       full_name: user.full_name,
-      email: user.email, // Email is the ID, so we keep it
+      email: user.email,
       role: user.role,
-      prakalpa: user.prakalpa || '', // Handle nulls
+      prakalpa: user.prakalpa || '',
       phone_number: user.phone_number || '',
       password: user.password || '', 
       status: user.status || 'Active'
@@ -79,34 +107,47 @@ const UserManagement = () => {
     setIsModalOpen(true);
   };
 
-  // 4. Handle Submit (Create OR Update)
+  // 5. Handle Submit (Create OR Update)
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    
-    // 🟢 Decide Action based on Mode
-    const actionType = isEditing ? 'admin/users/update' : 'admin/users/create';
+
+    // Prepare payload (exclude ID from the data object, we use it only for the WHERE clause)
+    const payload = {
+      full_name: formData.full_name,
+      email: formData.email,
+      role: formData.role,
+      prakalpa: formData.prakalpa,
+      phone_number: formData.phone_number,
+      password: formData.password,
+      status: formData.status
+    };
 
     try {
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({
-          action: actionType,
-          userEmail: 'admin@test.com',
-          ...formData
-        })
-      });
-      const result = await response.json();
-      
-      if (result.status === 'success') {
-        alert(isEditing ? 'User Updated Successfully!' : 'User Created Successfully!');
-        setIsModalOpen(false);
-        fetchData(); // Refresh table
+      if (isEditing) {
+        // ✅ UPDATE
+        const { error } = await supabase
+          .from('users')
+          .update(payload)
+          .eq('id', formData.id); // Update where ID matches
+
+        if (error) throw error;
+        alert('User Updated Successfully!');
       } else {
-        alert('Error: ' + result.message);
+        // ✅ CREATE
+        const { error } = await supabase
+          .from('users')
+          .insert([payload]);
+
+        if (error) throw error;
+        alert('User Created Successfully!');
       }
+
+      setIsModalOpen(false);
+      fetchData(); // Refresh table
     } catch (error) {
-      alert('Network Error');
+      console.error("Save error:", error);
+      alert('Error saving: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -144,37 +185,48 @@ const UserManagement = () => {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr><td colSpan="6" className="text-center py-10">Loading users...</td></tr>
-              ) : users.map((user, index) => (
-                <tr key={index} className="hover:bg-gray-50 transition">
-                  <td className="px-6 py-4 font-medium text-gray-900">{user.full_name}</td>
-                  <td className="px-6 py-4">{user.email}</td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-1 rounded text-xs font-bold ${
-                      user.role === 'Admin' ? 'bg-purple-100 text-purple-700' : 
-                      user.role === 'Auditor' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
-                    }`}>
-                      {user.role}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">{user.prakalpa || '-'}</td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-1 rounded text-xs font-bold ${
-                      user.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                    }`}>
-                      {user.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right flex justify-end gap-2">
-                    {/* 🟢 EDIT BUTTON NOW WORKS */}
-                    <button 
-                      onClick={() => handleEdit(user)}
-                      className="text-blue-500 hover:bg-blue-50 p-2 rounded"
-                    >
-                      <Edit size={16} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              ) : users.length === 0 ? (
+                <tr><td colSpan="6" className="text-center py-10">No users found.</td></tr>
+              ) : (
+                users.map((user) => (
+                  <tr key={user.id} className="hover:bg-gray-50 transition">
+                    <td className="px-6 py-4 font-medium text-gray-900">{user.full_name}</td>
+                    <td className="px-6 py-4">{user.email}</td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-1 rounded text-xs font-bold ${
+                        user.role === 'Admin' ? 'bg-purple-100 text-purple-700' : 
+                        user.role === 'Auditor' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {user.role}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">{user.prakalpa || '-'}</td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-1 rounded text-xs font-bold ${
+                        user.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                      }`}>
+                        {user.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right flex justify-end gap-2">
+                      <button 
+                        onClick={() => handleEdit(user)}
+                        className="text-blue-500 hover:bg-blue-50 p-2 rounded"
+                        title="Edit"
+                      >
+                        <Edit size={16} />
+                      </button>
+                      <button 
+                        onClick={() => handleDelete(user.id, user.full_name)}
+                        className="text-red-500 hover:bg-red-50 p-2 rounded"
+                        title="Delete"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -185,7 +237,6 @@ const UserManagement = () => {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              {/* 🟢 DYNAMIC TITLE */}
               <h3 className="font-bold text-lg">{isEditing ? 'Edit User' : 'Add New User'}</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-red-500"><X size={20}/></button>
             </div>
@@ -202,9 +253,7 @@ const UserManagement = () => {
                 <input 
                   required 
                   type="email" 
-                  // 🟢 DISABLE EMAIL IF EDITING (Cannot change ID)
-                  disabled={isEditing}
-                  className={`w-full border rounded-lg px-3 py-2 ${isEditing ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+                  className="w-full border rounded-lg px-3 py-2"
                   value={formData.email} 
                   onChange={e => setFormData({...formData, email: e.target.value})} 
                 />
@@ -233,19 +282,16 @@ const UserManagement = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Prakalpa (Project)</label>
-                
-                {/* 🟢 NEW DROPDOWN LOGIC */}
                 <select 
                   className="w-full border rounded-lg px-3 py-2 bg-white"
                   value={formData.prakalpa} 
                   onChange={e => setFormData({...formData, prakalpa: e.target.value})}
                 >
                   <option value="">-- Select Prakalpa --</option>
-                  {uniquePrakalpas.map((p, i) => (
+                  {prakalpaOptions.map((p, i) => (
                     <option key={i} value={p}>{p}</option>
                   ))}
                 </select>
-                <p className="text-xs text-gray-500 mt-1">Populated from Location Master</p>
               </div>
 
               <div>

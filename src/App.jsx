@@ -19,6 +19,7 @@ import ScheduledAudits from './pages/ScheduledAudits';
 import OpenReports from './pages/OpenReports';
 import AuditExecution from './pages/AuditExecution'; 
 import ActionItems from './pages/ActionItems'; // 🟢 1. IMPORT CAPA MODULE
+import CreateAuditPlan from './pages/CreateAuditPlan';
 
 // Placeholder Forms (Kept these for now if you haven't built them yet)
 const AuditPlanForm = () => <div className="p-10">Form: Create New Audit Plan</div>;
@@ -90,6 +91,7 @@ function App() {
             <Route path="/admin/users" element={<UserManagement />} />
             <Route path="/admin/locations" element={<LocationManagement />} />
             <Route path="/admin/masters" element={<MasterSettings />} />
+            <Route path="/planning/new" element={<CreateAuditPlan />} />
             
           </Route>
         )}
