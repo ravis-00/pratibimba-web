@@ -22,7 +22,7 @@ import ActionItems from './pages/ActionItems'; // 🟢 1. IMPORT CAPA MODULE
 import CreateAuditPlan from './pages/CreateAuditPlan';
 
 // Placeholder Forms (Kept these for now if you haven't built them yet)
-const AuditPlanForm = () => <div className="p-10">Form: Create New Audit Plan</div>;
+
 const ScheduleAuditForm = () => <div className="p-10">Form: Schedule an Audit</div>;
 
 function App() {
@@ -71,8 +71,9 @@ function App() {
             
             {/* 2. Audit Planning Module */}
             <Route path="/planning" element={<PlannedAudits />} />
-            <Route path="/planning/new" element={<AuditPlanForm />} />
+        
             <Route path="/planning/schedule/:id" element={<ScheduleAuditForm />} />
+            <Route path="/planning/new" element={<CreateAuditPlan />} />
 
             {/* 3. Scheduled Audits Module */}
             <Route path="/scheduled" element={<ScheduledAudits />} />
@@ -91,7 +92,7 @@ function App() {
             <Route path="/admin/users" element={<UserManagement />} />
             <Route path="/admin/locations" element={<LocationManagement />} />
             <Route path="/admin/masters" element={<MasterSettings />} />
-            <Route path="/planning/new" element={<CreateAuditPlan />} />
+            
             
           </Route>
         )}

@@ -2,13 +2,22 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Plus, Search, RefreshCw, Calendar, MapPin, User, Trash2,
   CalendarClock, Filter, X, ChevronLeft, ChevronRight,
-  Download, ArrowUpDown, ArrowUp, ArrowDown, Eye, Edit3, Save
+  Download, ArrowUpDown, ArrowUp, ArrowDown, Eye, Edit3, Save, Archive
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import config from "../config";
+import { supabase } from "../supabase";
 
 const PlannedAudits = () => {
   const navigate = useNavigate();
+
+  // 🟢 CALCULATE CURRENT AY (e.g. "2025-26")
+  const getCurrentAY = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = d.getMonth(); // 0=Jan
+    const startYear = month < 3 ? year - 1 : year;
+    return `${startYear}-${(startYear + 1).toString().slice(-2)}`;
+  };
 
   // =========================
   // 1. STATE MANAGEMENT
@@ -16,6 +25,10 @@ const PlannedAudits = () => {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+
+  // 🟢 FILTER STATE (Default to Current Year)
+  const [ayFilter, setAyFilter] = useState(getCurrentAY());
+  const [availableYears, setAvailableYears] = useState([getCurrentAY()]);
 
   // Pagination & Sorting
   const [currentPage, setCurrentPage] = useState(1);
@@ -25,15 +38,7 @@ const PlannedAudits = () => {
   // Modals
   const [viewData, setViewData] = useState(null);
   const [editData, setEditData] = useState(null);
-
-  // Edit Form State
-  const [editForm, setEditForm] = useState({
-    schedule_start_date: "",
-    schedule_end_date: "",
-    status: "",
-    functional_area: "" // 🟢 ENSURE THIS IS HERE
-  });
-
+  
   // Filters
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -41,37 +46,26 @@ const PlannedAudits = () => {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
-  const API_URL = config.API_URL;
-  const currentUser = useMemo(() => {
-    try { return JSON.parse(localStorage.getItem("user") || "null"); } 
-    catch (e) { return null; }
-  }, []);
+  const [editForm, setEditForm] = useState({ 
+    schedule_start_date: "", 
+    schedule_end_date: "", 
+    status: "", 
+    functional_area: "" 
+  });
 
   // =========================
   // 2. HELPERS
   // =========================
+  const toInputDate = (iso) => iso ? new Date(iso).toISOString().split('T')[0] : "";
   
-  // Convert ISO (2025-12-22T...) to Input (2025-12-22)
-  const toInputDate = (isoString) => {
-    if (!isoString) return "";
-    try {
-       const d = new Date(isoString);
-       if(isNaN(d.getTime())) return "";
-       return d.toISOString().split('T')[0];
-    } catch(e) { return ""; }
+  const formatDate = (ds) => { 
+    if(!ds) return "-"; 
+    const d = new Date(ds); 
+    return isNaN(d) ? ds : `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`; 
   };
-
-  // Display Date (dd-mm-yyyy)
-  const formatDate = (dateString) => {
-    if (!dateString) return "-";
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return dateString;
-    return `${String(date.getDate()).padStart(2, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${date.getFullYear()}`;
-  };
-
-  // Helper for status badges
-  const getStatusColor = (status) => {
-    switch (status) {
+  
+  const getStatusColor = (s) => {
+    switch (s) {
       case "Completed": return "bg-purple-100 text-purple-700 border-purple-200";
       case "Scheduled": return "bg-blue-100 text-blue-700 border-blue-200";
       case "Planned": return "bg-yellow-100 text-yellow-700 border-yellow-200";
@@ -79,73 +73,72 @@ const PlannedAudits = () => {
     }
   };
 
-  // CSV Helper
-  const csvEscape = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+  const csvEscape = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
 
   // =========================
-  // 3. API ACTIONS
+  // 3. API ACTIONS (SUPABASE)
   // =========================
-
   const fetchPlans = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(API_URL, {
-        method: "POST",
-        body: JSON.stringify({ action: "audits/plans", userEmail: currentUser?.email }),
-      });
-      const result = await response.json();
+      // 1. Fetch Unique Years for Dropdown (Optional: you could hardcode range or fetch distinct)
+      const { data: yearData } = await supabase.from('audit_plan').select('ay_year');
+      if (yearData) {
+        const years = [...new Set(yearData.map(y => y.ay_year).filter(Boolean))].sort().reverse();
+        if (years.length > 0) setAvailableYears(years);
+      }
 
-      if (result?.status === "success" && Array.isArray(result.data)) {
-        const data = result.data.map((p) => ({
+      // 2. Fetch Data (Filtered by AY)
+      let query = supabase.from('audit_plan').select('*');
+      
+      // 🟢 APPLY AY FILTER
+      if (ayFilter) {
+        query = query.eq('ay_year', ayFilter);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      if (data) {
+        const processed = data.map((p) => ({
           ...p,
           audit_id: p.audit_id || "",
-          prakalpa_name: p.prakalpa_name || "Unknown Location",
+          prakalpa_name: p.prakalpa_name || "Unknown",
           coordinator_name: p.coordinator_name || "Unassigned",
           status: p.status || "Planned",
-          // Store raw date object for sorting/filtering
           dateObj: p.planned_date ? new Date(p.planned_date) : null,
         }));
         
-        // Default sort: Newest ID first
-        data.sort((a, b) => b.audit_id.localeCompare(a.audit_id));
-        setPlans(data);
-      } else {
-        setPlans([]);
+        // Default Sort: Newest ID first
+        processed.sort((a, b) => b.audit_id.localeCompare(a.audit_id));
+        setPlans(processed);
       }
     } catch (error) {
       console.error("Fetch error:", error);
-      setPlans([]);
     } finally {
       setLoading(false);
     }
-  }, [API_URL, currentUser]);
+  }, [ayFilter]); // Re-fetch when Year Filter changes
 
   useEffect(() => { fetchPlans(); }, [fetchPlans]);
 
-  const handleDelete = async (auditId) => {
-    if (!window.confirm(`Are you sure you want to delete Audit ${auditId}?`)) return;
+  const handleDelete = async (id) => {
+    if (!window.confirm(`Are you sure you want to delete Audit ${id}?`)) return;
     try {
-      const response = await fetch(API_URL, {
-        method: "POST",
-        body: JSON.stringify({ action: "audits/delete", audit_id: auditId, userEmail: currentUser?.email }),
-      });
-      const res = await response.json();
-      if (res?.status === "success") {
-        alert("Deleted successfully");
-        fetchPlans();
-      } else { alert("Error: " + (res?.message || "Failed")); }
-    } catch (e) { alert("Delete failed"); }
+      const { error } = await supabase.from('audit_plan').delete().eq('audit_id', id);
+      if (error) throw error;
+      alert("Deleted successfully");
+      setPlans(prev => prev.filter(p => p.audit_id !== id));
+    } catch (e) { alert("Delete failed: " + e.message); }
   };
 
-  // Open Modal and Pre-fill Data
   const openEditModal = (item) => {
     setEditData(item);
     setEditForm({
-        // Handle dates carefully - try schedule dates first, fallback to planned date
-        schedule_start_date: toInputDate(item.schedule_start_date || item.planned_date), 
+        schedule_start_date: toInputDate(item.schedule_start_date || item.planned_date),
         schedule_end_date: toInputDate(item.schedule_end_date || item.planned_date),
         status: item.status || "Planned",
-        functional_area: item.functional_area || "" 
+        functional_area: item.functional_area || ""
     });
   };
 
@@ -154,49 +147,44 @@ const PlannedAudits = () => {
     if (!editData) return;
     setSubmitting(true);
     
-    const payload = {
-        action: "audits/schedule", 
-        userEmail: currentUser?.email,
-        audit_id: editData.audit_id,
-        start_date: editForm.schedule_start_date,
-        end_date: editForm.schedule_end_date,
-        status: editForm.status,
-        functional_area: editForm.functional_area // Sending the new field
+    const payload = { 
+      schedule_start_date: editForm.schedule_start_date || null, 
+      schedule_end_date: editForm.schedule_end_date || null,
+      status: editForm.status,
+      functional_area: editForm.functional_area 
     };
 
     try {
-        const response = await fetch(API_URL, { method: "POST", body: JSON.stringify(payload) });
-        const res = await response.json();
-        if (res.status === 'success') {
-            alert("Audit updated successfully!");
-            setEditData(null);
-            fetchPlans();
-        } else {
-            alert("Update failed: " + res.message);
-        }
-    } catch (error) { alert("Network error"); } 
-    finally { setSubmitting(false); }
+      const { error } = await supabase.from('audit_plan').update(payload).eq('audit_id', editData.audit_id);
+      if (error) throw error;
+      alert("Audit updated successfully!");
+      setEditData(null);
+      fetchPlans();
+    } catch (error) { 
+      alert("Update failed: " + error.message); 
+    } finally { 
+      setSubmitting(false); 
+    }
   };
 
   const handleExport = () => {
     if (filteredPlans.length === 0) return alert("No data to export");
-    const headers = ["Audit ID", "Prakalpa", "Functional Area", "Coordinator", "Planned Date", "Status"];
+    const headers = ["Audit ID", "AY", "Prakalpa", "Functional Area", "Coordinator", "Planned Date", "Status"];
     const rows = filteredPlans.map(row => [
-        csvEscape(row.audit_id), csvEscape(row.prakalpa_name), csvEscape(row.functional_area),
-        csvEscape(row.coordinator_name), csvEscape(formatDate(row.planned_date)), csvEscape(row.status)
+      csvEscape(row.audit_id), csvEscape(row.ay_year), csvEscape(row.prakalpa_name), csvEscape(row.functional_area),
+      csvEscape(row.coordinator_name), csvEscape(formatDate(row.planned_date)), csvEscape(row.status)
     ]);
     const csvContent = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `Audit_Plans.csv`;
+    link.download = `Audit_Plans_${ayFilter}.csv`;
     link.click();
   };
 
   // =========================
   // 4. FILTERING & SORTING
   // =========================
-  
   const uniqueStatuses = useMemo(() => [...new Set(plans.map((p) => p.status).filter(Boolean))].sort(), [plans]);
   const uniqueCoordinators = useMemo(() => [...new Set(plans.map((p) => p.coordinator_name).filter(Boolean))].sort(), [plans]);
 
@@ -235,12 +223,11 @@ const PlannedAudits = () => {
       if (key === "planned_date") {
         return ((a.dateObj ? a.dateObj.getTime() : 0) - (b.dateObj ? b.dateObj.getTime() : 0)) * dir;
       }
-      return (a[key] ?? "").toString().toLowerCase().localeCompare((b[key] ?? "").toString().toLowerCase()) * dir;
+      return (a[key] ?? "").toString().toLowerCase().localeCompare((b[key] ?? "").toString()) * dir;
     });
     return items;
   }, [filteredPlans, sortConfig]);
 
-  // Pagination Logic
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentItems = sortedPlans.slice(indexOfFirstItem, indexOfLastItem);
@@ -285,9 +272,19 @@ const PlannedAudits = () => {
       {/* FILTERS */}
       <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
         <div className="flex flex-col xl:flex-row gap-4">
+           
+           {/* 🟢 NEW AY YEAR FILTER */}
+           <div className="relative w-full xl:w-48">
+             <Archive className="absolute left-3 top-3 text-gray-400" size={16} />
+             <select className="w-full pl-9 pr-8 py-2.5 border rounded-lg font-bold text-blue-800 bg-blue-50 outline-none cursor-pointer" 
+                value={ayFilter} onChange={e => setAyFilter(e.target.value)}>
+                {availableYears.map(y => <option key={y} value={y}>AY {y}</option>)}
+             </select>
+           </div>
+
            <div className="relative flex-1">
              <Search className="absolute left-3 top-3 text-gray-400" size={18} />
-             <input type="text" placeholder="Search ID, Prakalpa, Area..." className="w-full pl-10 pr-4 py-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-blue-100" 
+             <input type="text" placeholder="Search ID, Prakalpa..." className="w-full pl-10 pr-4 py-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-blue-100" 
                value={searchTerm} onChange={e => {setSearchTerm(e.target.value); setCurrentPage(1);}} />
            </div>
            
@@ -338,7 +335,7 @@ const PlannedAudits = () => {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading && <tr><td colSpan="7" className="p-12 text-center text-gray-500 animate-pulse">Loading data...</td></tr>}
-              {!loading && currentItems.length === 0 && <tr><td colSpan="7" className="p-12 text-center text-gray-400">No audits found matching your criteria.</td></tr>}
+              {!loading && currentItems.length === 0 && <tr><td colSpan="7" className="p-12 text-center text-gray-400">No audits found for {ayFilter}.</td></tr>}
 
               {currentItems.map((plan) => (
                 <tr key={plan.audit_id} className="hover:bg-blue-50/50 transition duration-150">
@@ -373,7 +370,7 @@ const PlannedAudits = () => {
 
       {/* ================= MODALS ================= */}
 
-      {/* 🟢 VIEW MODAL (Read Only) */}
+      {/* VIEW MODAL (Read Only) */}
       {viewData && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -387,6 +384,8 @@ const PlannedAudits = () => {
                   <div><label className="text-xs font-bold text-gray-400 uppercase">Status</label>
                       <div className="mt-1"><span className={`inline-block px-2 py-0.5 rounded text-xs font-bold border ${getStatusColor(viewData.status)}`}>{viewData.status}</span></div>
                   </div>
+                  <div><label className="text-xs font-bold text-gray-400 uppercase">AY Year</label><p className="font-bold text-gray-800 mt-1">{viewData.ay_year}</p></div>
+                  
                   <div className="col-span-2"><label className="text-xs font-bold text-gray-400 uppercase">Prakalpa</label><p className="text-gray-800 font-medium mt-1">{viewData.prakalpa_name}</p></div>
                   <div className="col-span-2"><label className="text-xs font-bold text-gray-400 uppercase">Functional Area</label><p className="text-gray-800 mt-1 bg-gray-50 p-2 rounded border">{viewData.functional_area}</p></div>
                   <div><label className="text-xs font-bold text-gray-400 uppercase">Coordinator</label><p className="text-gray-800 mt-1">{viewData.coordinator_name}</p></div>
@@ -410,7 +409,7 @@ const PlannedAudits = () => {
         </div>
       )}
 
-      {/* 🟢 EDIT / SCHEDULE MODAL (Form) */}
+      {/* EDIT / SCHEDULE MODAL (Form) */}
       {editData && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -421,29 +420,27 @@ const PlannedAudits = () => {
                 </div>
                 
                 <div className="p-6 space-y-4">
-                    <div className="bg-blue-50 p-3 rounded text-sm text-blue-800 mb-4 border border-blue-100">
-                        Editing <strong>{editData.audit_id}</strong> for <strong>{editData.prakalpa_name}</strong>
+                    <div className="bg-blue-50 p-3 rounded text-sm text-blue-800 mb-4 border border-blue-100 flex justify-between">
+                        <span><strong>{editData.audit_id}</strong></span>
+                        <span>{editData.prakalpa_name}</span>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-xs font-bold text-gray-500 mb-1">Start Date</label>
-                            {/* 🟢 Date Input (formatted yyyy-MM-dd) */}
                             <input type="date" className="w-full border rounded p-2 text-sm focus:ring-2 focus:ring-blue-200 outline-none" 
-                                value={editForm.schedule_start_date} onChange={e => setEditForm({...editForm, schedule_start_date: e.target.value})} required />
+                                value={editForm.schedule_start_date} onChange={e => setEditForm({...editForm, schedule_start_date: e.target.value})} />
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-gray-500 mb-1">End Date</label>
                             <input type="date" className="w-full border rounded p-2 text-sm focus:ring-2 focus:ring-blue-200 outline-none" 
-                                value={editForm.schedule_end_date} onChange={e => setEditForm({...editForm, schedule_end_date: e.target.value})} required />
+                                value={editForm.schedule_end_date} onChange={e => setEditForm({...editForm, schedule_end_date: e.target.value})} />
                         </div>
                     </div>
 
-                    {/* 🟢 NEW FUNCTIONAL AREA FIELD */}
                     <div>
                         <label className="block text-xs font-bold text-gray-500 mb-1">Functional Area</label>
                         <input type="text" className="w-full border rounded p-2 text-sm focus:ring-2 focus:ring-blue-200 outline-none"
-                             placeholder="e.g. Academic Systems, HR, Infrastructure..."
                              value={editForm.functional_area} onChange={e => setEditForm({...editForm, functional_area: e.target.value})} />
                     </div>
 
