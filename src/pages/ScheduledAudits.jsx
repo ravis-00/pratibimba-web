@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, MapPin, Users, Clock, Search, RefreshCw, FileText, Trash2, Edit, X, CheckSquare, Square, PlayCircle } from 'lucide-react';
+import { Calendar, MapPin, Users, Clock, Search, RefreshCw, Trash2, Edit, X, CheckSquare, Square, PlayCircle, UserCheck, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom'; 
-import config from '../config';
+import { supabase } from '../supabase';
 
-// SIMPLE TOAST COMPONENT
+// Simple Toast Component
 const Toast = ({ message, type, onClose }) => {
   useEffect(() => {
     const timer = setTimeout(onClose, 3000); 
@@ -22,29 +22,65 @@ const Toast = ({ message, type, onClose }) => {
 const ScheduledAudits = () => {
   const [audits, setAudits] = useState([]);
   const [users, setUsers] = useState([]); 
-  const [prakalpas, setPrakalpas] = useState([]); // 🟢 NEW: Store Master Prakalpas
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
   // Modal & Toast State
   const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
   const [toast, setToast] = useState(null);
+  
   const [scheduleData, setScheduleData] = useState({
       audit_id: '',
       prakalpa_name: '', 
-      location_id: '', 
-      start_date: '',
-      end_date: '',
-      time_from: '',
-      time_to: '',
-      assigned_auditors: [],
+      functional_area: '',
+      schedule_start_date: '',
+      schedule_end_date: '',
+      schedule_time: '', 
+      assigned_auditors: '', // 🟢 Changed to String (Manual Entry)
       assigned_auditees: [] 
   });
 
   const navigate = useNavigate(); 
-  const API_URL = config.API_URL;
-  const currentUser = JSON.parse(localStorage.getItem('user'));
 
+  // =========================
+  // 1. HELPERS
+  // =========================
+  
+  // Safely parse dates
+  const toInputDate = (dateString) => {
+    if (!dateString) return "";
+    try {
+        const d = new Date(dateString);
+        if (isNaN(d.getTime())) {
+            const parts = dateString.split('-');
+            if (parts.length === 3 && parts[2].length === 4) {
+               return `${parts[2]}-${parts[1]}-${parts[0]}`; 
+            }
+            return ""; 
+        }
+        return d.toISOString().split('T')[0];
+    } catch (e) { return ""; }
+  };
+
+  const formatDateRange = (start, end) => {
+    if (!start) return 'Date not set';
+    try {
+      const d1 = new Date(start);
+      const d2 = end ? new Date(end) : d1;
+      
+      if(isNaN(d1.getTime())) return `${start} - ${end || start}`; 
+
+      const s = d1.toLocaleDateString();
+      const e = d2.toLocaleDateString();
+      return `${s} - ${e}`;
+    } catch (e) { return 'Invalid Date'; }
+  };
+
+  const normalize = (str) => (str || '').toLowerCase().trim();
+
+  // =========================
+  // 2. DATA FETCHING
+  // =========================
   useEffect(() => {
     fetchData();
   }, []);
@@ -52,27 +88,28 @@ const ScheduledAudits = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const payload = { userEmail: currentUser?.email };
       
-      // 🟢 UPDATED: Fetch Prakalpas Master List too
-      const [auditRes, userRes, locRes] = await Promise.all([
-        fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'audits/list', ...payload }) }),
-        fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'meta/users', ...payload }) }),
-        fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'admin/prakalpas/list', ...payload }) })
-      ]);
+      const { data: auditData, error: auditError } = await supabase
+        .from('audit_plan')
+        .select('*')
+        .eq('status', 'Scheduled')
+        .order('schedule_start_date', { ascending: true });
 
-      const [auditData, userData, locData] = await Promise.all([auditRes.json(), userRes.json(), locRes.json()]);
+      if (auditError) throw auditError;
 
-      if (auditData.status === 'success') {
-        const scheduledOnly = (auditData.data || []).filter(a => a.status === 'Scheduled');
-        setAudits(scheduledOnly);
-      }
-      if (userData.status === 'success') setUsers(userData.data || []);
-      if (locData.status === 'success') setPrakalpas(locData.data || []); // 🟢 Store Prakalpas
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('full_name, email, role, prakalpa_name')
+        .eq('status', 'Active');
+
+      if (userError) throw userError;
+
+      setAudits(auditData || []);
+      setUsers(userData || []);
 
     } catch (error) {
       console.error("Error fetching data:", error);
-      showToast("Failed to load data", 'error');
+      showToast("Failed to load data: " + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -82,52 +119,31 @@ const ScheduledAudits = () => {
     setToast({ message: msg, type });
   };
 
-  const formatDateRange = (start, end) => {
-    if (!start || !end) return 'Date not set';
-    try {
-      const s = new Date(start).toLocaleDateString();
-      const e = new Date(end).toLocaleDateString();
-      return `${s} - ${e}`;
-    } catch (e) { return 'Invalid Date'; }
-  };
+  // =========================
+  // 3. ACTIONS
+  // =========================
 
-  // --- ACTIONS ---
-
-  const handleDelete = async (audit) => {
-    if (!window.confirm(`Are you sure you want to delete Audit ${audit.audit_id}? This cannot be undone.`)) return;
-    setLoading(true);
+  const handleDelete = async (auditId) => {
+    if (!window.confirm(`Are you sure you want to delete Audit ${auditId}? This cannot be undone.`)) return;
+    
     try {
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        body: JSON.stringify({ action: 'audits/delete', userEmail: currentUser.email, audit_id: audit.audit_id })
-      });
-      const result = await response.json();
-      if (result.status === 'success') {
-        showToast("Audit deleted successfully.", 'success');
-        fetchData();
-      } else {
-        showToast(result.message, 'error');
-      }
-    } catch (e) { showToast("Delete failed.", 'error'); } finally { setLoading(false); }
+      const { error } = await supabase.from('audit_plan').delete().eq('audit_id', auditId);
+      if (error) throw error;
+      showToast("Audit deleted successfully.", 'success');
+      setAudits(prev => prev.filter(a => a.audit_id !== auditId));
+    } catch (e) { showToast("Delete failed: " + e.message, 'error'); }
   };
 
   const handleEditSchedule = (row) => {
-    let tFrom = '', tTo = '';
-    if (row.schedule_time && row.schedule_time.includes('-')) {
-        const parts = row.schedule_time.split('-').map(s => s.trim());
-        tFrom = parts[0];
-        tTo = parts[1];
-    }
-
     setScheduleData({
       audit_id: row.audit_id,
-      prakalpa_name: row.location_name,
-      location_id: row.location_id, 
-      start_date: row.schedule_start_date ? new Date(row.schedule_start_date).toISOString().split('T')[0] : '',
-      end_date: row.schedule_end_date ? new Date(row.schedule_end_date).toISOString().split('T')[0] : '',
-      time_from: tFrom,
-      time_to: tTo,
-      assigned_auditors: row.assigned_auditors ? row.assigned_auditors.split(',').map(s => s.trim()) : [],
+      prakalpa_name: row.prakalpa_name,
+      functional_area: row.functional_area,
+      schedule_start_date: toInputDate(row.schedule_start_date || row.planned_date),
+      schedule_end_date: toInputDate(row.schedule_end_date || row.planned_date),
+      schedule_time: row.schedule_time || '',
+      // 🟢 Load Manual String directly (No splitting)
+      assigned_auditors: row.assigned_auditors || '',
       assigned_auditees: row.assigned_auditees ? row.assigned_auditees.split(',').map(s => s.trim()) : []
     });
     setIsRescheduleModalOpen(true);
@@ -138,76 +154,54 @@ const ScheduledAudits = () => {
     setLoading(true);
 
     const payload = {
-        audit_id: scheduleData.audit_id,
-        start_date: scheduleData.start_date,
-        end_date: scheduleData.end_date,
-        time: `${scheduleData.time_from} - ${scheduleData.time_to}`,
-        auditors: scheduleData.assigned_auditors.join(', '),
-        auditees: scheduleData.assigned_auditees.join(', ')
+        schedule_start_date: scheduleData.schedule_start_date,
+        schedule_end_date: scheduleData.schedule_end_date,
+        schedule_time: scheduleData.schedule_time,
+        // 🟢 Save Manual String directly
+        assigned_auditors: scheduleData.assigned_auditors,
+        assigned_auditees: scheduleData.assigned_auditees.join(', ')
     };
 
     try {
-        const response = await fetch(API_URL, {
-            method: 'POST',
-            body: JSON.stringify({ action: 'audits/schedule', userEmail: currentUser.email, ...payload })
-        });
-        const result = await response.json();
-
-        if (result.status === 'success') {
-            showToast("✅ Audit Rescheduled Successfully!", 'success');
-            setIsRescheduleModalOpen(false);
-            fetchData();
-        } else {
-            showToast(result.message, 'error');
-        }
-    } catch (e) { showToast("Network Error", 'error'); } finally { setLoading(false); }
+        const { error } = await supabase.from('audit_plan').update(payload).eq('audit_id', scheduleData.audit_id);
+        if (error) throw error;
+        showToast("✅ Audit Rescheduled Successfully!", 'success');
+        setIsRescheduleModalOpen(false);
+        fetchData(); 
+    } catch (e) { showToast("Update failed: " + e.message, 'error'); } finally { setLoading(false); }
   };
 
   const handleConductAudit = (auditId) => {
     navigate(`/audit/execute/${auditId}`);
   };
 
-  // --- HELPERS ---
-  const normalize = (str) => (str || '').toLowerCase().trim();
+  // --- FILTER HELPERS ---
 
-  const getAuditorOptions = () => {
-    return users.filter(u => {
-        const r = normalize(u.role);
-        return r.includes('coordinator') || r.includes('auditor') || r.includes('admin');
-    }).sort((a, b) => a.full_name.localeCompare(b.full_name));
-  };
-
-  // 🟢 SMART FILTER: Links ID (PRK005) to Name (JGRV)
+  // 🟢 FIXED: Safe Sorting for Auditees
   const getAuditeeOptions = () => {
-      // 1. Get the Plan's Location ID (PRK005)
-      const targetId = normalize(scheduleData.location_id);
-      
-      // 2. Find the Prakalpa Name using the Master List
-      const targetPrakalpa = prakalpas.find(p => normalize(p.prakalpa_id) === targetId);
-      const targetName = targetPrakalpa ? normalize(targetPrakalpa.prakalpa_name) : '';
+      const targetName = normalize(scheduleData.prakalpa_name);
 
       return users.filter(u => {
           const r = normalize(u.role);
-          const isAuditee = r.includes('auditee');
+          const isEligible = r.includes('auditee') || r.includes('coordinator'); 
           
-          // 3. Compare User's Prakalpa Name vs. Target Name
-          const userPrakalpaName = normalize(u.prakalpa_name);
-          const matches = userPrakalpaName === targetName;
+          const userPrakalpa = normalize(u.prakalpa_name);
+          const matches = userPrakalpa === targetName;
 
-          return isAuditee && matches; 
-      }).sort((a, b) => a.full_name.localeCompare(b.full_name));
+          return isEligible && matches; 
+      }).sort((a, b) => (a.full_name || "").localeCompare(b.full_name || ""));
   };
 
-  const toggleList = (listType, email) => {
+  const toggleList = (listType, name) => {
     setScheduleData(prev => {
         const current = prev[listType];
-        if (current.includes(email)) return { ...prev, [listType]: current.filter(e => e !== email) };
-        else return { ...prev, [listType]: [...current, email] };
+        if (current.includes(name)) return { ...prev, [listType]: current.filter(e => e !== name) };
+        else return { ...prev, [listType]: [...current, name] };
     });
   };
 
   const filteredAudits = audits.filter(a => 
-    (a.location_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (a.prakalpa_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (a.audit_id || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -244,7 +238,7 @@ const ScheduledAudits = () => {
             <tr>
               <th className="px-6 py-4">Audit ID</th>
               <th className="px-6 py-4">Location</th>
-              <th className="px-6 py-4">Audit Focus</th>
+              <th className="px-6 py-4">Functional Area</th>
               <th className="px-6 py-4">Schedule</th>
               <th className="px-6 py-4">Team</th>
               <th className="px-6 py-4 text-right">Actions</th>
@@ -262,17 +256,12 @@ const ScheduledAudits = () => {
                 
                 <td className="px-6 py-4 align-top">
                   <div className="flex items-center gap-2 font-bold text-gray-800">
-                    <MapPin size={14} className="text-gray-400"/> {row.location_name}
+                    <MapPin size={14} className="text-gray-400"/> {row.prakalpa_name}
                   </div>
                 </td>
 
                 <td className="px-6 py-4 align-top">
                   <div className="font-bold text-gray-700 mb-1">{row.functional_area}</div>
-                  <ul className="list-disc list-inside text-xs text-gray-500">
-                    {row.audit_areas ? row.audit_areas.split(',').map((area, idx) => (
-                        <li key={idx} className="truncate max-w-[200px]">{area.trim()}</li>
-                    )) : <li>General</li>}
-                  </ul>
                 </td>
 
                 <td className="px-6 py-4 align-top">
@@ -286,33 +275,39 @@ const ScheduledAudits = () => {
 
                 <td className="px-6 py-4 align-top">
                   <div className="flex flex-col gap-2">
-                     <div className="text-xs text-gray-600">
-                        <strong className="flex items-center gap-1"><Users size={10} className="text-blue-500"/> Auditors:</strong>
-                        <div className="truncate max-w-[150px] pl-3">{row.assigned_auditors || 'None'}</div>
-                     </div>
-                     <div className="text-xs text-gray-600">
-                        <strong className="flex items-center gap-1"><Users size={10} className="text-orange-500"/> Auditees:</strong>
-                        <div className="truncate max-w-[150px] pl-3">{row.assigned_auditees || 'None'}</div>
-                     </div>
+                      <div className="text-xs text-gray-700">
+                        <strong className="flex items-center gap-1 text-gray-500"><UserCheck size={12} className="text-green-600"/> Coordinator:</strong>
+                        <div className="pl-4 font-medium">{row.coordinator_name || '-'}</div>
+                      </div>
+                      
+                      <div className="text-xs text-gray-700">
+                        <strong className="flex items-center gap-1 text-gray-500"><Users size={12} className="text-blue-500"/> Auditors:</strong>
+                        <div className="pl-4">{row.assigned_auditors || '-'}</div>
+                      </div>
+                      
+                      <div className="text-xs text-gray-700">
+                        <strong className="flex items-center gap-1 text-gray-500"><User size={12} className="text-orange-500"/> Auditees:</strong>
+                        <div className="pl-4">{row.assigned_auditees || '-'}</div>
+                      </div>
                   </div>
                 </td>
 
                 <td className="px-6 py-4 text-right align-top">
-                   <div className="flex flex-col gap-2 items-end">
-                       <button onClick={() => handleConductAudit(row.audit_id)} 
+                    <div className="flex flex-col gap-2 items-end">
+                        <button onClick={() => handleConductAudit(row.audit_id)} 
                                className="bg-purple-600 text-white px-3 py-1.5 rounded text-xs font-bold flex items-center gap-2 hover:bg-purple-700 shadow-sm w-full justify-center">
-                         <PlayCircle size={14}/> Conduct Audit
-                       </button>
+                          <PlayCircle size={14}/> Conduct Audit
+                        </button>
 
-                       <div className="flex gap-2">
+                        <div className="flex gap-2">
                             <button onClick={() => handleEditSchedule(row)} className="text-gray-500 hover:bg-gray-100 p-1.5 rounded border" title="Reschedule">
                                 <Edit size={14} />
                             </button>
-                            <button onClick={() => handleDelete(row)} className="text-red-400 hover:bg-red-50 p-1.5 rounded border" title="Delete">
+                            <button onClick={() => handleDelete(row.audit_id)} className="text-red-400 hover:bg-red-50 p-1.5 rounded border" title="Delete">
                                 <Trash2 size={14} />
                             </button>
-                       </div>
-                   </div>
+                        </div>
+                    </div>
                 </td>
               </tr>
             ))}
@@ -332,53 +327,48 @@ const ScheduledAudits = () => {
             </div>
             
             <form onSubmit={handleRescheduleSubmit} className="p-6 space-y-4">
-              <div className="bg-gray-50 p-3 rounded border text-sm text-gray-600">
+              <div className="bg-gray-50 p-3 rounded border text-sm text-gray-600 flex justify-between">
                 <p><strong>Prakalpa:</strong> {scheduleData.prakalpa_name}</p>
+                <p><strong>Area:</strong> {scheduleData.functional_area}</p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                  <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">Start Date</label>
-                    <input type="date" required className="w-full border rounded px-3 py-2" value={scheduleData.start_date} onChange={e => setScheduleData({...scheduleData, start_date: e.target.value})} />
+                    <input type="date" required className="w-full border rounded px-3 py-2" value={scheduleData.schedule_start_date} onChange={e => setScheduleData({...scheduleData, schedule_start_date: e.target.value})} />
                  </div>
                  <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">End Date</label>
-                    <input type="date" required className="w-full border rounded px-3 py-2" min={scheduleData.start_date} value={scheduleData.end_date} onChange={e => setScheduleData({...scheduleData, end_date: e.target.value})} />
+                    <input type="date" required className="w-full border rounded px-3 py-2" min={scheduleData.schedule_start_date} value={scheduleData.schedule_end_date} onChange={e => setScheduleData({...scheduleData, schedule_end_date: e.target.value})} />
                  </div>
               </div>
 
               <div>
-                  <label className="block text-xs font-bold text-gray-500 mb-1">Audit Time (From - To)</label>
-                  <div className="flex items-center gap-2">
-                     <input type="time" required className="w-full border rounded px-3 py-2" value={scheduleData.time_from} onChange={e => setScheduleData({...scheduleData, time_from: e.target.value})} />
-                     <span className="text-gray-400">-</span>
-                     <input type="time" required className="w-full border rounded px-3 py-2" value={scheduleData.time_to} onChange={e => setScheduleData({...scheduleData, time_to: e.target.value})} />
-                  </div>
+                  <label className="block text-xs font-bold text-gray-500 mb-1">Audit Time (e.g. 10:00 AM - 2:00 PM)</label>
+                  <input type="text" className="w-full border rounded px-3 py-2" placeholder="Enter time range" value={scheduleData.schedule_time} onChange={e => setScheduleData({...scheduleData, schedule_time: e.target.value})} />
               </div>
 
-              <div className="border rounded p-3 bg-white">
-                  <label className="block text-xs font-bold text-gray-500 mb-2">Assign Auditors</label>
-                  <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {getAuditorOptions().map((user, i) => {
-                      const isSelected = scheduleData.assigned_auditors.includes(user.email);
-                      return (
-                        <div key={i} className={`flex items-center gap-2 p-2 rounded cursor-pointer transition ${isSelected ? 'bg-purple-50 border border-purple-200' : 'hover:bg-gray-100'}`} onClick={() => toggleList('assigned_auditors', user.email)}>
-                          {isSelected ? <CheckSquare size={16} className="text-purple-600" /> : <Square size={16} className="text-gray-400" />}
-                          <span className={`text-sm ${isSelected ? 'text-purple-800 font-medium' : 'text-gray-600'}`}>{user.full_name}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
+              {/* 🟢 CHANGED: Manual Auditors Text Area */}
+              <div>
+                  <label className="block text-xs font-bold text-gray-500 mb-2">Assign Auditors (Names)</label>
+                  <textarea 
+                      className="w-full border rounded p-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none"
+                      rows="2"
+                      placeholder="Enter auditor names separated by comma (e.g. John Doe, Jane Smith)"
+                      value={scheduleData.assigned_auditors}
+                      onChange={(e) => setScheduleData({...scheduleData, assigned_auditors: e.target.value})}
+                  ></textarea>
               </div>
 
+              {/* Assign Auditees */}
               <div className="border rounded p-3 bg-white">
-                  <label className="block text-xs font-bold text-gray-500 mb-2">Assign Auditees</label>
+                  <label className="block text-xs font-bold text-gray-500 mb-2">Assign Auditees (Matching Location)</label>
                   <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {getAuditeeOptions().length === 0 && <p className="text-xs text-red-400 p-2">No auditees found for location.</p>}
+                    {getAuditeeOptions().length === 0 && <p className="text-xs text-red-400 p-2">No users found for {scheduleData.prakalpa_name}.</p>}
                     {getAuditeeOptions().map((user, i) => {
-                      const isSelected = scheduleData.assigned_auditees.includes(user.email);
+                      const isSelected = scheduleData.assigned_auditees.includes(user.full_name);
                       return (
-                        <div key={i} className={`flex items-center gap-2 p-2 rounded cursor-pointer transition ${isSelected ? 'bg-blue-50 border border-blue-200' : 'hover:bg-gray-100'}`} onClick={() => toggleList('assigned_auditees', user.email)}>
+                        <div key={i} className={`flex items-center gap-2 p-2 rounded cursor-pointer transition ${isSelected ? 'bg-blue-50 border border-blue-200' : 'hover:bg-gray-100'}`} onClick={() => toggleList('assigned_auditees', user.full_name)}>
                           {isSelected ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} className="text-gray-400" />}
                           <span className={`text-sm ${isSelected ? 'text-blue-800 font-medium' : 'text-gray-600'}`}>{user.full_name}</span>
                         </div>

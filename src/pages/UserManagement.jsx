@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, UserCheck, X } from 'lucide-react';
-import { supabase } from '../supabase'; // ✅ Connect to Supabase
+import { supabase } from '../supabase'; 
 
 const UserManagement = () => {
   // State
   const [users, setUsers] = useState([]);
-  const [prakalpaOptions, setPrakalpaOptions] = useState([]); // Stores list of projects for dropdown
+  const [prakalpaOptions, setPrakalpaOptions] = useState([]); 
   const [loading, setLoading] = useState(true);
   
   // UI State
@@ -14,11 +14,11 @@ const UserManagement = () => {
   
   // Form State
   const [formData, setFormData] = useState({
-    id: null, // Store ID for updates
+    id: null, 
     full_name: '', 
     email: '', 
     role: 'Auditee', 
-    prakalpa: '', 
+    prakalpa_name: '', // ✅ FIXED: Renamed to match DB column
     phone_number: '', 
     password: 'password123', 
     status: 'Active'
@@ -50,7 +50,6 @@ const UserManagement = () => {
 
       if (locError) throw locError;
 
-      // Extract unique names for the dropdown
       const uniqueNames = [...new Set(prakalpaData.map(item => item.prakalpa_name))];
       setPrakalpaOptions(uniqueNames);
 
@@ -71,7 +70,6 @@ const UserManagement = () => {
       const { error } = await supabase.from('users').delete().eq('id', id);
       if (error) throw error;
       
-      // Update UI locally
       setUsers(users.filter(u => u.id !== id));
       alert("User deleted successfully.");
     } catch (error) {
@@ -86,7 +84,13 @@ const UserManagement = () => {
     setIsEditing(false);
     setFormData({
       id: null,
-      full_name: '', email: '', role: 'Auditee', prakalpa: '', phone_number: '', password: 'password123', status: 'Active'
+      full_name: '', 
+      email: '', 
+      role: 'Auditee', 
+      prakalpa_name: '', // ✅ FIXED
+      phone_number: '', 
+      password: 'password123', 
+      status: 'Active'
     });
     setIsModalOpen(true);
   };
@@ -95,11 +99,11 @@ const UserManagement = () => {
   const handleEdit = (user) => {
     setIsEditing(true);
     setFormData({
-      id: user.id, // Capture the ID for the update logic
+      id: user.id, 
       full_name: user.full_name,
       email: user.email,
       role: user.role,
-      prakalpa: user.prakalpa || '',
+      prakalpa_name: user.prakalpa_name || '', // ✅ FIXED: Read from correct DB column
       phone_number: user.phone_number || '',
       password: user.password || '', 
       status: user.status || 'Active'
@@ -112,12 +116,11 @@ const UserManagement = () => {
     e.preventDefault();
     setLoading(true);
 
-    // Prepare payload (exclude ID from the data object, we use it only for the WHERE clause)
     const payload = {
       full_name: formData.full_name,
       email: formData.email,
       role: formData.role,
-      prakalpa: formData.prakalpa,
+      prakalpa_name: formData.prakalpa_name, // ✅ FIXED: Send correct column name
       phone_number: formData.phone_number,
       password: formData.password,
       status: formData.status
@@ -125,16 +128,16 @@ const UserManagement = () => {
 
     try {
       if (isEditing) {
-        // ✅ UPDATE
+        // UPDATE
         const { error } = await supabase
           .from('users')
           .update(payload)
-          .eq('id', formData.id); // Update where ID matches
+          .eq('id', formData.id);
 
         if (error) throw error;
         alert('User Updated Successfully!');
       } else {
-        // ✅ CREATE
+        // CREATE
         const { error } = await supabase
           .from('users')
           .insert([payload]);
@@ -144,7 +147,7 @@ const UserManagement = () => {
       }
 
       setIsModalOpen(false);
-      fetchData(); // Refresh table
+      fetchData(); 
     } catch (error) {
       console.error("Save error:", error);
       alert('Error saving: ' + error.message);
@@ -200,7 +203,10 @@ const UserManagement = () => {
                         {user.role}
                       </span>
                     </td>
-                    <td className="px-6 py-4">{user.prakalpa || '-'}</td>
+                    
+                    {/* ✅ Correctly displaying prakalpa_name */}
+                    <td className="px-6 py-4">{user.prakalpa_name || '-'}</td>
+                    
                     <td className="px-6 py-4">
                       <span className={`px-2 py-1 rounded text-xs font-bold ${
                         user.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
@@ -209,18 +215,10 @@ const UserManagement = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right flex justify-end gap-2">
-                      <button 
-                        onClick={() => handleEdit(user)}
-                        className="text-blue-500 hover:bg-blue-50 p-2 rounded"
-                        title="Edit"
-                      >
+                      <button onClick={() => handleEdit(user)} className="text-blue-500 hover:bg-blue-50 p-2 rounded" title="Edit">
                         <Edit size={16} />
                       </button>
-                      <button 
-                        onClick={() => handleDelete(user.id, user.full_name)}
-                        className="text-red-500 hover:bg-red-50 p-2 rounded"
-                        title="Delete"
-                      >
+                      <button onClick={() => handleDelete(user.id, user.full_name)} className="text-red-500 hover:bg-red-50 p-2 rounded" title="Delete">
                         <Trash2 size={16} />
                       </button>
                     </td>
@@ -250,13 +248,8 @@ const UserManagement = () => {
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input 
-                  required 
-                  type="email" 
-                  className="w-full border rounded-lg px-3 py-2"
-                  value={formData.email} 
-                  onChange={e => setFormData({...formData, email: e.target.value})} 
-                />
+                <input required type="email" className="w-full border rounded-lg px-3 py-2"
+                  value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -284,8 +277,8 @@ const UserManagement = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Prakalpa (Project)</label>
                 <select 
                   className="w-full border rounded-lg px-3 py-2 bg-white"
-                  value={formData.prakalpa} 
-                  onChange={e => setFormData({...formData, prakalpa: e.target.value})}
+                  value={formData.prakalpa_name} 
+                  onChange={e => setFormData({...formData, prakalpa_name: e.target.value})} // ✅ FIXED
                 >
                   <option value="">-- Select Prakalpa --</option>
                   {prakalpaOptions.map((p, i) => (
