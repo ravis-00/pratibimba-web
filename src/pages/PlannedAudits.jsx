@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Plus, Search, RefreshCw, Calendar, MapPin, User, Trash2,
   CalendarClock, Filter, X, ChevronLeft, ChevronRight,
-  Download, ArrowUpDown, ArrowUp, ArrowDown, Eye, Edit3, Save, Archive, CheckSquare, Square, Clock
+  Download, ArrowUpDown, ArrowUp, ArrowDown, Eye, Edit3, Save, Archive, CheckSquare, Square, Clock, ListFilter, FileText, Printer, CheckCircle, PieChart
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -28,14 +28,15 @@ const PlannedAudits = () => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  // View Toggle State (Default = true, show only Planned)
+  const [showPlannedOnly, setShowPlannedOnly] = useState(true);
+
   // Filters & Pagination
   const [ayFilter, setAyFilter] = useState(getCurrentAY());
   const [availableYears, setAvailableYears] = useState([getCurrentAY()]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [coordinatorFilter, setCoordinatorFilter] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
   
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
@@ -43,7 +44,9 @@ const PlannedAudits = () => {
 
   // Modals
   const [viewData, setViewData] = useState(null);
-  const [editData, setEditData] = useState(null);
+  const [editData, setEditData] = useState(null); 
+  const [reportData, setReportData] = useState(null); 
+  const [loadingReport, setLoadingReport] = useState(false);
 
   // Form State
   const [editForm, setEditForm] = useState({
@@ -147,6 +150,28 @@ const PlannedAudits = () => {
     if (!error) { alert("Deleted"); setPlans(p => p.filter(x => x.audit_id !== id)); }
   };
 
+  const handleOpenReport = async (plan) => {
+      setReportData(null);
+      setLoadingReport(true);
+      try {
+          const { data: findings, error } = await supabase
+              .from('audit_observations')
+              .select('*')
+              .eq('audit_id', plan.audit_id);
+          
+          if(error) throw error;
+
+          setReportData({
+              ...plan,
+              observations: findings || []
+          });
+      } catch (e) {
+          alert("Error loading report: " + e.message);
+      } finally {
+          setLoadingReport(false);
+      }
+  };
+
   const openScheduleModal = (item) => {
     setEditData(item);
     setEditForm({
@@ -205,16 +230,10 @@ const PlannedAudits = () => {
     return masterAuditAreas.filter(item => normalize(item.parent_value) === parentArea);
   };
 
-  // 🟢 UPDATED: Allow Coordinators to be Auditees too
   const getAuditeeOptions = () => users.filter(u => {
      const r = normalize(u.role);
-     
-     // 1. Check Role: Must be Auditee OR Audit Coordinator
      const isEligible = r.includes('auditee') || r.includes('coordinator');
-     
-     // 2. Check Location: Must match the Audit Plan's location
      const isLocationMatch = normalize(u.prakalpa_name) === normalize(editData?.prakalpa_name);
-     
      return isEligible && isLocationMatch;
   }).sort((a,b) => (a.full_name || "").localeCompare(b.full_name || ""));
 
@@ -222,18 +241,33 @@ const PlannedAudits = () => {
   const uniqueStatuses = useMemo(() => [...new Set(plans.map(p => p.status).filter(Boolean))].sort(), [plans]);
   const uniqueCoordinators = useMemo(() => [...new Set(plans.map(p => p.coordinator_name).filter(Boolean))].sort(), [plans]);
 
+  // 🟢 CALCULATE COUNTS (Global for current AY)
+  const statusCounts = useMemo(() => {
+      const counts = { planned: 0, scheduled: 0, completed: 0 };
+      plans.forEach(p => {
+          if (p.status === 'Planned') counts.planned++;
+          else if (p.status === 'Scheduled') counts.scheduled++;
+          else if (p.status === 'Completed') counts.completed++;
+      });
+      return counts;
+  }, [plans]);
+
   const filteredPlans = useMemo(() => {
     const term = searchTerm.toLowerCase();
-    return plans.filter(p => {
+    
+    // 1. PRIMARY TOGGLE FILTER
+    let baseList = plans;
+    if (showPlannedOnly) {
+        baseList = baseList.filter(p => p.status === 'Planned');
+    }
+
+    return baseList.filter(p => {
         const matchesSearch = !term || p.audit_id.toLowerCase().includes(term) || p.prakalpa_name.toLowerCase().includes(term) || p.functional_area.toLowerCase().includes(term);
         const matchesStatus = !statusFilter || p.status === statusFilter;
         const matchesCoord = !coordinatorFilter || p.coordinator_name === coordinatorFilter;
-        let matchesDate = true;
-        if (startDate && p.dateObj) matchesDate = matchesDate && p.dateObj >= new Date(startDate);
-        if (endDate && p.dateObj) { const end = new Date(endDate); end.setHours(23,59,59); matchesDate = matchesDate && p.dateObj <= end; }
-        return matchesSearch && matchesStatus && matchesCoord && matchesDate;
+        return matchesSearch && matchesStatus && matchesCoord;
     });
-  }, [plans, searchTerm, statusFilter, coordinatorFilter, startDate, endDate]);
+  }, [plans, showPlannedOnly, searchTerm, statusFilter, coordinatorFilter]);
 
   const sortedPlans = useMemo(() => {
     const items = [...filteredPlans];
@@ -243,9 +277,46 @@ const PlannedAudits = () => {
     return items;
   }, [filteredPlans, sortConfig]);
 
-  const currentItems = sortedPlans.slice((currentPage-1)*itemsPerPage, currentPage*itemsPerPage);
+  // Pagination Calculation
+  const totalItems = sortedPlans.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentItems = sortedPlans.slice(indexOfFirstItem, indexOfLastItem);
+  const startRecord = totalItems === 0 ? 0 : indexOfFirstItem + 1;
+  const endRecord = Math.min(indexOfLastItem, totalItems);
+
   const requestSort = (key) => setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === "ascending" ? "descending" : "ascending" }));
   const SortIcon = ({ col }) => sortConfig.key !== col ? <ArrowUpDown size={14} className="text-gray-300"/> : sortConfig.direction === "ascending" ? <ArrowUp size={14} className="text-blue-600"/> : <ArrowDown size={14} className="text-blue-600"/>;
+
+  // 🟢 SMART FILTER HANDLERS (Fixes "No Records" issue)
+  const handleStatusChange = (val) => {
+      setStatusFilter(val);
+      setCurrentPage(1); // Reset page to 1
+      
+      // If user selects "Scheduled" or "Completed", we MUST switch to "All Audits" mode
+      // otherwise they will see nothing because "Planning Queue" hides those statuses.
+      if (val && val !== 'Planned') {
+          setShowPlannedOnly(false);
+      }
+  };
+
+  const handleCoordinatorChange = (val) => {
+      setCoordinatorFilter(val);
+      setCurrentPage(1); // Reset page to 1
+  };
+
+  const handleSearchChange = (val) => {
+      setSearchTerm(val);
+      setCurrentPage(1); // Reset page to 1
+  };
+
+  const clearFilters = () => {
+      setSearchTerm("");
+      setStatusFilter("");
+      setCoordinatorFilter("");
+      setCurrentPage(1); // Reset page to 1
+  };
 
   const handleExport = () => {
     if (filteredPlans.length === 0) return alert("No data");
@@ -265,7 +336,7 @@ const PlannedAudits = () => {
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between bg-white p-5 rounded-xl shadow-sm border border-gray-100">
         <div>
             <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Calendar className="text-blue-600" /> Audit Planning</h1>
-            <p className="text-sm text-gray-500 mt-1">Plan and Schedule audits for AY {ayFilter}</p>
+            <p className="text-sm text-gray-500 mt-1">Create and manage your yearly audit calendar.</p>
         </div>
         <div className="flex gap-2">
             <button onClick={handleExport} className="bg-white border p-2 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-2 px-3 text-sm font-medium"><Download size={18} /> CSV</button>
@@ -274,37 +345,79 @@ const PlannedAudits = () => {
         </div>
       </div>
 
-      {/* FILTERS */}
+      {/* STATUS SUMMARY BAR */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
+              <div><p className="text-xs text-gray-500 uppercase font-bold">Total Planned</p><p className="text-xl font-bold text-gray-800">{plans.length}</p></div>
+              <div className="bg-gray-100 p-2 rounded-full text-gray-600"><PieChart size={20}/></div>
+          </div>
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-yellow-100 flex items-center justify-between">
+              <div><p className="text-xs text-yellow-600 uppercase font-bold">Planned</p><p className="text-xl font-bold text-yellow-700">{statusCounts.planned}</p></div>
+              <div className="bg-yellow-50 p-2 rounded-full text-yellow-600"><Clock size={20}/></div>
+          </div>
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-100 flex items-center justify-between">
+              <div><p className="text-xs text-blue-600 uppercase font-bold">Scheduled</p><p className="text-xl font-bold text-blue-700">{statusCounts.scheduled}</p></div>
+              <div className="bg-blue-50 p-2 rounded-full text-blue-600"><CalendarClock size={20}/></div>
+          </div>
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-purple-100 flex items-center justify-between">
+              <div><p className="text-xs text-purple-600 uppercase font-bold">Completed</p><p className="text-xl font-bold text-purple-700">{statusCounts.completed}</p></div>
+              <div className="bg-purple-50 p-2 rounded-full text-purple-600"><CheckCircle size={20}/></div>
+          </div>
+      </div>
+
+      {/* FILTERS & TOGGLE */}
       <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
+        <div className="flex justify-between items-center mb-4 border-b pb-4">
+            <div className="flex items-center gap-3">
+                <button onClick={() => { setShowPlannedOnly(true); setCurrentPage(1); }} className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold transition ${showPlannedOnly ? 'bg-yellow-100 text-yellow-800 border-yellow-200 border' : 'text-gray-500 hover:bg-gray-50'}`}>
+                    <ListFilter size={16}/> Planning Queue
+                </button>
+                <button onClick={() => { setShowPlannedOnly(false); setCurrentPage(1); }} className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold transition ${!showPlannedOnly ? 'bg-gray-800 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+                    <CalendarClock size={16}/> All Audits
+                </button>
+            </div>
+            <div className="text-xs text-gray-400">
+                Viewing: <strong>{showPlannedOnly ? "Pending Plans Only" : "Full History"}</strong>
+            </div>
+        </div>
+
         <div className="flex flex-col xl:flex-row gap-4">
            <div className="relative w-full xl:w-40">
              <Archive className="absolute left-3 top-3 text-gray-400" size={16} />
              <select className="w-full pl-9 pr-8 py-2.5 border rounded-lg font-bold text-blue-800 bg-blue-50 outline-none cursor-pointer" 
-                value={ayFilter} onChange={e => setAyFilter(e.target.value)}>
+                value={ayFilter} onChange={e => { setAyFilter(e.target.value); setCurrentPage(1); }}>
                 {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
              </select>
            </div>
+           
            <div className="relative flex-1">
              <Search className="absolute left-3 top-3 text-gray-400" size={18} />
              <input type="text" placeholder="Search ID, Prakalpa, Area..." className="w-full pl-10 pr-4 py-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-blue-100" 
-               value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+               value={searchTerm} onChange={e => handleSearchChange(e.target.value)} />
            </div>
+           
+           {/* 🟢 FIXED STATUS FILTER (Auto-switches View) */}
            <div className="relative w-full xl:w-40">
              <Filter className="absolute left-3 top-3 text-gray-400" size={16} />
-             <select className="w-full pl-9 pr-8 py-2.5 border rounded-lg outline-none" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+             <select className="w-full pl-9 pr-8 py-2.5 border rounded-lg outline-none" value={statusFilter} onChange={e => handleStatusChange(e.target.value)}>
                 <option value="">All Statuses</option>
                 {uniqueStatuses.map(s => <option key={s} value={s}>{s}</option>)}
              </select>
            </div>
+           
+           {/* 🟢 FIXED COORDINATOR FILTER (Resets Page) */}
            <div className="relative w-full xl:w-48">
              <User className="absolute left-3 top-3 text-gray-400" size={16} />
-             <select className="w-full pl-9 pr-8 py-2.5 border rounded-lg outline-none" value={coordinatorFilter} onChange={e => setCoordinatorFilter(e.target.value)}>
+             <select className="w-full pl-9 pr-8 py-2.5 border rounded-lg outline-none" value={coordinatorFilter} onChange={e => handleCoordinatorChange(e.target.value)}>
                 <option value="">All Coordinators</option>
                 {uniqueCoordinators.map(c => <option key={c} value={c}>{c}</option>)}
              </select>
            </div>
+           
            {(searchTerm || statusFilter || coordinatorFilter) && (
-             <button onClick={() => {setSearchTerm(""); setStatusFilter(""); setCoordinatorFilter("");}} className="px-4 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg font-bold"><X size={18}/></button>
+             <button onClick={clearFilters} className="px-4 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg font-bold flex items-center gap-2">
+                <X size={18}/> Clear
+             </button>
            )}
         </div>
       </div>
@@ -336,33 +449,54 @@ const PlannedAudits = () => {
                   <td className="px-6 py-4 text-sm text-gray-600">{plan.coordinator_name}</td>
                   <td className="px-6 py-4 text-sm text-gray-600">{formatDate(plan.planned_date)}</td>
                   <td className="px-6 py-4"><span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${getStatusColor(plan.status)}`}>{plan.status}</span></td>
+                  
                   <td className="px-6 py-4 text-right flex justify-end gap-2">
-                    <button onClick={() => openScheduleModal(plan)} className="text-blue-600 hover:bg-blue-50 p-1.5 rounded border border-blue-100" title="Schedule Audit">
-                        <CalendarClock size={16} />
-                    </button>
-                    <button onClick={() => setViewData(plan)} className="text-gray-500 hover:bg-gray-100 p-1.5 rounded border border-gray-100" title="View">
-                        <Eye size={16} />
-                    </button>
-                    <button onClick={() => handleDelete(plan.audit_id)} className="text-red-400 hover:bg-red-50 p-1.5 rounded border border-red-100" title="Delete">
-                        <Trash2 size={16} />
-                    </button>
+                    {plan.status === 'Completed' ? (
+                        <button onClick={() => handleOpenReport(plan)} className="text-purple-600 hover:bg-purple-50 p-1.5 rounded border border-purple-100" title="View Audit Report">
+                            <FileText size={16} />
+                        </button>
+                    ) : (
+                        <>
+                            {plan.status === 'Planned' && (
+                                <button onClick={() => openScheduleModal(plan)} className="text-blue-600 hover:bg-blue-50 p-1.5 rounded border border-blue-100" title="Schedule Audit">
+                                    <CalendarClock size={16} />
+                                </button>
+                            )}
+                            <button onClick={() => setViewData(plan)} className="text-gray-500 hover:bg-gray-100 p-1.5 rounded border border-gray-100" title="View Details">
+                                <Eye size={16} />
+                            </button>
+                            <button onClick={() => handleDelete(plan.audit_id)} className="text-red-400 hover:bg-red-50 p-1.5 rounded border border-red-100" title="Delete">
+                                <Trash2 size={16} />
+                            </button>
+                        </>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <div className="flex justify-between px-6 py-4 border-t">
-            <button onClick={() => setCurrentPage(p => Math.max(1, p-1))} disabled={currentPage===1} className="px-3 py-1 border rounded disabled:opacity-50"><ChevronLeft size={16}/></button>
-            <span className="text-sm text-gray-500">Page {currentPage}</span>
-            <button onClick={() => setCurrentPage(p => p+1)} disabled={currentItems.length < itemsPerPage} className="px-3 py-1 border rounded disabled:opacity-50"><ChevronRight size={16}/></button>
-        </div>
+        
+        {/* PAGINATION FOOTER */}
+        {!loading && filteredPlans.length > 0 && (
+            <div className="flex flex-col md:flex-row justify-between items-center px-6 py-4 border-t bg-gray-50">
+                <span className="text-sm text-gray-600 mb-2 md:mb-0">
+                    Showing <strong>{startRecord}-{endRecord}</strong> of <strong>{filteredPlans.length}</strong> Records
+                </span>
+                <div className="flex items-center gap-4">
+                    <button onClick={() => setCurrentPage(p => Math.max(1, p-1))} disabled={currentPage===1} className="p-2 border rounded-lg bg-white disabled:opacity-50 hover:bg-gray-100"><ChevronLeft size={16}/></button>
+                    <span className="text-sm font-medium text-gray-700">Page {currentPage} of {totalPages}</span>
+                    <button onClick={() => setCurrentPage(p => Math.min(totalPages, p+1))} disabled={currentPage===totalPages} className="p-2 border rounded-lg bg-white disabled:opacity-50 hover:bg-gray-100"><ChevronRight size={16}/></button>
+                </div>
+            </div>
+        )}
       </div>
 
-      {/* 🟢 SCHEDULING / EDIT MODAL */}
+      {/* MODALS REMAIN THE SAME */}
+      {/* SCHEDULING MODAL */}
       {editData && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
+           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
               <div className="bg-blue-600 px-6 py-4 border-b flex justify-between items-center text-white">
                  <h3 className="text-lg font-bold flex items-center gap-2"><CalendarClock/> Schedule Audit</h3>
                  <button onClick={() => setEditData(null)}><X size={20} className="hover:text-blue-200"/></button>
@@ -374,9 +508,8 @@ const PlannedAudits = () => {
                     <span>AY {ayFilter}</span>
                  </div>
 
-                 {/* 🟢 NEW FIELD: PRAKALPA (Read Only) */}
                  <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">Prakalpa</label>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Prakalpa (Location)</label>
                     <input className="w-full border rounded p-2 text-sm bg-gray-50 font-bold text-gray-700" readOnly 
                         value={editForm.prakalpa_name} />
                  </div>
@@ -409,8 +542,6 @@ const PlannedAudits = () => {
                         <input className="w-full border rounded p-2 text-sm bg-gray-50" readOnly 
                             value={editForm.functional_area} />
                     </div>
-                    
-                    {/* 🟢 READ-ONLY COORDINATOR */}
                     <div>
                         <label className="block text-xs font-bold text-gray-500 mb-1">Audit Coordinator</label>
                         <input className="w-full border rounded p-2 text-sm bg-gray-50" readOnly 
@@ -418,7 +549,6 @@ const PlannedAudits = () => {
                     </div>
                  </div>
 
-                 {/* Audit Areas */}
                  <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">Audit Areas (Scope)</label>
                     <div className="border rounded p-2 max-h-32 overflow-y-auto bg-white space-y-1">
@@ -433,19 +563,17 @@ const PlannedAudits = () => {
                     </div>
                  </div>
 
-                 {/* 🟢 MANUAL AUDITOR ENTRY */}
                  <div>
                     <label className="block text-xs font-bold text-gray-500 mb-2">Assign Auditors (Names)</label>
                     <textarea 
                         className="w-full border rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                         rows="2"
-                        placeholder="Enter auditor names separated by comma (e.g. John Doe, Jane Smith)"
+                        placeholder="Enter auditor names separated by comma"
                         value={editForm.assigned_auditors}
                         onChange={(e) => setEditForm({...editForm, assigned_auditors: e.target.value})}
                     ></textarea>
                  </div>
 
-                 {/* 🟢 STRICT AUDITEE FILTER */}
                  <div className="border rounded p-3">
                     <label className="block text-xs font-bold text-gray-500 mb-2">Assign Auditees (Only from {editData.prakalpa_name})</label>
                     <div className="max-h-24 overflow-y-auto space-y-1">
@@ -459,11 +587,9 @@ const PlannedAudits = () => {
                     </div>
                  </div>
 
-                 {/* 🟢 READ-ONLY STATUS */}
                  <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">Status</label>
-                    <input className="w-full border rounded p-2 text-sm bg-gray-100 text-gray-500" readOnly 
-                        value={editForm.status} />
+                    <input className="w-full border rounded p-2 text-sm bg-gray-100 text-gray-500" readOnly value={editForm.status} />
                  </div>
 
                  <div className="flex justify-end gap-2 pt-2 border-t">
@@ -477,10 +603,10 @@ const PlannedAudits = () => {
         </div>
       )}
 
-      {/* 🟢 VIEW MODAL (Read Only) */}
+      {/* VIEW DETAILS MODAL */}
       {viewData && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-in fade-in zoom-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6">
              <div className="flex justify-between items-center mb-4 border-b pb-3">
                 <h3 className="font-bold text-lg text-gray-800">Audit Details</h3>
                 <button onClick={() => setViewData(null)}><X size={20} className="text-gray-400"/></button>
@@ -493,21 +619,50 @@ const PlannedAudits = () => {
                 <div><span className="block text-xs font-bold text-gray-400">Prakalpa</span> <span className="font-medium">{viewData.prakalpa_name}</span></div>
                 <div><span className="block text-xs font-bold text-gray-400">Functional Area</span> <span className="font-medium">{viewData.functional_area}</span></div>
                 <div><span className="block text-xs font-bold text-gray-400">Coordinator</span> <span>{viewData.coordinator_name}</span></div>
-                
-                {viewData.schedule_start_date && (
-                    <div className="bg-gray-50 p-3 rounded border mt-2">
-                        <h4 className="font-bold text-gray-700 mb-2 flex items-center gap-2"><CalendarClock size={14}/> Schedule</h4>
-                        <div className="grid grid-cols-2 gap-y-2">
-                            <p><strong>Start:</strong> {formatDate(viewData.schedule_start_date)}</p>
-                            <p><strong>End:</strong> {formatDate(viewData.schedule_end_date)}</p>
-                            <p className="col-span-2"><strong>Time:</strong> {viewData.schedule_time || '-'}</p>
-                            <p className="col-span-2"><strong>Audit Areas:</strong> {viewData.audit_areas || '-'}</p>
-                            <p className="col-span-2"><strong>Auditors:</strong> {viewData.assigned_auditors || '-'}</p>
-                            <p className="col-span-2"><strong>Auditees:</strong> {viewData.assigned_auditees || '-'}</p>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* REPORT VIEWER MODAL */}
+      {reportData && (
+        <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto backdrop-blur-sm flex justify-center items-start pt-10 pb-10">
+          <div className="bg-white w-full max-w-4xl shadow-2xl rounded-xl overflow-hidden">
+            <div className="bg-gray-800 text-white px-6 py-4 flex justify-between items-center">
+                <h2 className="font-bold text-lg">Completed Audit Report</h2>
+                <div className="flex gap-3">
+                    <button onClick={() => window.print()} className="flex items-center gap-2 bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm"><Printer size={16}/> Print</button>
+                    <button onClick={() => setReportData(null)} className="text-gray-400 hover:text-white"><X size={24}/></button>
+                </div>
+            </div>
+            <div className="p-10 min-h-[400px]">
+                {loadingReport ? (
+                    <div className="text-center p-10 text-gray-500">Loading Report...</div>
+                ) : (
+                    <div className="space-y-6">
+                        <h1 className="text-2xl font-bold uppercase border-b pb-2">Internal Audit Report</h1>
+                        <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded">
+                            <div><span className="font-bold text-xs text-gray-500 uppercase">Audit ID</span> <p>{reportData.audit_id}</p></div>
+                            <div><span className="font-bold text-xs text-gray-500 uppercase">Status</span> <p className="text-green-600 font-bold">COMPLETED</p></div>
+                            <div><span className="font-bold text-xs text-gray-500 uppercase">Location</span> <p>{reportData.prakalpa_name}</p></div>
+                            <div><span className="font-bold text-xs text-gray-500 uppercase">Functional Area</span> <p>{reportData.functional_area}</p></div>
+                        </div>
+                        <div>
+                            <h3 className="font-bold mb-2">Observations</h3>
+                            {reportData.observations.length === 0 ? <p className="text-gray-400 italic">No observations found.</p> : (
+                                <table className="w-full border text-sm">
+                                    <thead className="bg-gray-100"><tr><th className="p-2 border">Type</th><th className="p-2 border">Observation</th></tr></thead>
+                                    <tbody>
+                                        {reportData.observations.map((obs, i) => (
+                                            <tr key={i}><td className="p-2 border font-bold text-xs">{obs.type}</td><td className="p-2 border">{obs.observation_text}</td></tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
                         </div>
                     </div>
                 )}
-             </div>
+            </div>
           </div>
         </div>
       )}

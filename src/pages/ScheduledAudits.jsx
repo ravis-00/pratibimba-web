@@ -33,10 +33,11 @@ const ScheduledAudits = () => {
       audit_id: '',
       prakalpa_name: '', 
       functional_area: '',
+      coordinator_name: '', // 🟢 Added Coordinator Name to State
       schedule_start_date: '',
       schedule_end_date: '',
       schedule_time: '', 
-      assigned_auditors: '', // 🟢 Changed to String (Manual Entry)
+      assigned_auditors: '', 
       assigned_auditees: [] 
   });
 
@@ -139,10 +140,10 @@ const ScheduledAudits = () => {
       audit_id: row.audit_id,
       prakalpa_name: row.prakalpa_name,
       functional_area: row.functional_area,
+      coordinator_name: row.coordinator_name || '', // 🟢 Map Coordinator Name
       schedule_start_date: toInputDate(row.schedule_start_date || row.planned_date),
       schedule_end_date: toInputDate(row.schedule_end_date || row.planned_date),
       schedule_time: row.schedule_time || '',
-      // 🟢 Load Manual String directly (No splitting)
       assigned_auditors: row.assigned_auditors || '',
       assigned_auditees: row.assigned_auditees ? row.assigned_auditees.split(',').map(s => s.trim()) : []
     });
@@ -157,7 +158,6 @@ const ScheduledAudits = () => {
         schedule_start_date: scheduleData.schedule_start_date,
         schedule_end_date: scheduleData.schedule_end_date,
         schedule_time: scheduleData.schedule_time,
-        // 🟢 Save Manual String directly
         assigned_auditors: scheduleData.assigned_auditors,
         assigned_auditees: scheduleData.assigned_auditees.join(', ')
     };
@@ -177,7 +177,13 @@ const ScheduledAudits = () => {
 
   // --- FILTER HELPERS ---
 
-  // 🟢 FIXED: Safe Sorting for Auditees
+  const getAuditorOptions = () => {
+    return users.filter(u => {
+        const r = normalize(u.role);
+        return r.includes('coordinator') || r.includes('auditor') || r.includes('admin');
+    }).sort((a, b) => (a.full_name || "").localeCompare(b.full_name || ""));
+  };
+
   const getAuditeeOptions = () => {
       const targetName = normalize(scheduleData.prakalpa_name);
 
@@ -332,6 +338,12 @@ const ScheduledAudits = () => {
                 <p><strong>Area:</strong> {scheduleData.functional_area}</p>
               </div>
 
+              {/* 🟢 NEW: Read-Only Coordinator Field */}
+              <div>
+                  <label className="block text-xs font-bold text-gray-500 mb-1">Audit Coordinator</label>
+                  <input className="w-full border rounded px-3 py-2 bg-gray-100 text-gray-600" readOnly value={scheduleData.coordinator_name} />
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                  <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">Start Date</label>
@@ -348,13 +360,13 @@ const ScheduledAudits = () => {
                   <input type="text" className="w-full border rounded px-3 py-2" placeholder="Enter time range" value={scheduleData.schedule_time} onChange={e => setScheduleData({...scheduleData, schedule_time: e.target.value})} />
               </div>
 
-              {/* 🟢 CHANGED: Manual Auditors Text Area */}
+              {/* Assign Auditors (Manual) */}
               <div>
                   <label className="block text-xs font-bold text-gray-500 mb-2">Assign Auditors (Names)</label>
                   <textarea 
                       className="w-full border rounded p-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none"
                       rows="2"
-                      placeholder="Enter auditor names separated by comma (e.g. John Doe, Jane Smith)"
+                      placeholder="Enter auditor names separated by comma"
                       value={scheduleData.assigned_auditors}
                       onChange={(e) => setScheduleData({...scheduleData, assigned_auditors: e.target.value})}
                   ></textarea>

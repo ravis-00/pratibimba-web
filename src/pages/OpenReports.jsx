@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Search, RefreshCw, Eye, X, Printer } from 'lucide-react';
-import config from '../config';
+import { supabase } from '../supabase';
 
 const OpenReports = () => {
   const [reports, setReports] = useState([]);
-  const [users, setUsers] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -13,32 +12,20 @@ const OpenReports = () => {
   const [reportDetails, setReportDetails] = useState(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
-  const API_URL = config.API_URL;
-  const currentUser = JSON.parse(localStorage.getItem('user'));
-
-  useEffect(() => {
-    fetchData();
-  }, []);
-
+  // 1. Fetch Completed Audits
   const fetchData = async () => {
     try {
       setLoading(true);
-      const payload = { userEmail: currentUser.email };
       
-      const [auditRes, userRes] = await Promise.all([
-        fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'audits/list', ...payload }) }),
-        fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'meta/users', ...payload }) })
-      ]);
+      const { data, error } = await supabase
+        .from('audit_plan')
+        .select('*')
+        .eq('status', 'Completed') // Only completed reports
+        .order('completion_date', { ascending: false }); // Newest first
 
-      const [auditData, userData] = await Promise.all([auditRes.json(), userRes.json()]);
+      if (error) throw error;
       
-      if (auditData.status === 'success') {
-        const completedOnly = (auditData.data || []).filter(a => a.status === 'Completed');
-        setReports(completedOnly);
-      }
-      if (userData.status === 'success') {
-        setUsers(userData.data || []);
-      }
+      setReports(data || []);
 
     } catch (error) {
       console.error("Error loading reports:", error);
@@ -47,36 +34,37 @@ const OpenReports = () => {
     }
   };
 
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // 2. Fetch Full Details for Viewer
   const handleViewReport = async (audit) => {
     setSelectedReport(audit);
     setLoadingDetails(true);
     try {
-        const response = await fetch(API_URL, {
-            method: 'POST',
-            body: JSON.stringify({ action: 'audits/execution/get', userEmail: currentUser.email, audit_id: audit.audit_id })
+        // Fetch Observations linked to this audit
+        const { data: findings, error } = await supabase
+            .from('audit_observations')
+            .select('*')
+            .eq('audit_id', audit.audit_id);
+
+        if (error) throw error;
+
+        setReportDetails({
+            ...audit,
+            observations: findings || []
         });
-        const result = await response.json();
-        if (result.status === 'success') {
-            setReportDetails(result.data);
-        }
-    } catch (e) { console.error(e); } 
-    finally { setLoadingDetails(false); }
+
+    } catch (e) { 
+        console.error(e); 
+    } finally { 
+        setLoadingDetails(false); 
+    }
   };
 
   const handlePrint = () => {
       window.print();
-  };
-
-  const getNames = (emailString) => {
-    if (!emailString) return 'None';
-    const emails = emailString.split(',').map(e => e.trim().toLowerCase());
-    
-    const names = emails.map(email => {
-        const user = users.find(u => (u.email || '').toLowerCase() === email);
-        return user ? user.full_name : email; 
-    });
-    
-    return names.join(', ');
   };
 
   const formatDate = (dateVal) => {
@@ -92,37 +80,14 @@ const OpenReports = () => {
     } catch (e) { return dateVal; }
   };
 
-  // 🟢 SMART ID GENERATOR (Fixes OBS-1 issue)
-  const getDisplayID = (currentObs, allObs) => {
-    // 1. If DB already has the correct code (e.g. NC-01), use it.
-    if (currentObs.finding_code && !currentObs.finding_code.startsWith('OBS')) {
-        return currentObs.finding_code;
-    }
-
-    // 2. Fallback: Calculate ID on the fly
-    let prefix = "OBS";
-    if (currentObs.type.includes("Non-Conformance")) prefix = "NC";
-    else if (currentObs.type.includes("Improvement")) prefix = "OFI";
-    else if (currentObs.type.includes("Good") || currentObs.type.includes("Compliant")) prefix = "GP";
-
-    // Filter all obs to find ones with the same prefix (same type)
-    const sameTypeObs = allObs.filter(o => {
-        let p = "OBS";
-        if (o.type.includes("Non-Conformance")) p = "NC";
-        else if (o.type.includes("Improvement")) p = "OFI";
-        else if (o.type.includes("Good") || o.type.includes("Compliant")) p = "GP";
-        return p === prefix;
-    });
-
-    // Find the index of the current one
-    const index = sameTypeObs.findIndex(o => o.observation_id === currentObs.observation_id);
-    const serial = String(index + 1).padStart(2, '0');
-
-    return `${prefix}-${serial}`;
+  // Generate Report Ref ID (e.g. IAR25154)
+  const getReportRef = (auditId) => {
+      if(!auditId) return "REF-000";
+      return auditId.replace("IQA", "IAR"); // Internal Quality Audit -> Internal Audit Report
   };
 
   const filteredReports = reports.filter(r => 
-    (r.location_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (r.prakalpa_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (r.audit_id || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -136,9 +101,21 @@ const OpenReports = () => {
           </h1>
           <p className="text-sm text-gray-500 mt-1">View and print finalized audit reports.</p>
         </div>
-        <button onClick={fetchData} className="p-2 text-gray-500 hover:bg-gray-100 rounded">
-            <RefreshCw size={20}/>
-        </button>
+        <div className="flex gap-2">
+            <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                <input 
+                    type="text" 
+                    placeholder="Search Report ID or Location..." 
+                    className="pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+            <button onClick={fetchData} className="p-2 text-gray-500 hover:bg-gray-100 rounded">
+                <RefreshCw size={20}/>
+            </button>
+        </div>
       </div>
 
       {/* REPORT LIST TABLE */}
@@ -146,7 +123,7 @@ const OpenReports = () => {
         <table className="w-full text-left text-sm text-gray-600">
           <thead className="bg-gray-50 text-gray-700 uppercase font-bold border-b">
             <tr>
-              <th className="px-6 py-4">Audit ID</th>
+              <th className="px-6 py-4">Report ID</th>
               <th className="px-6 py-4">Location</th>
               <th className="px-6 py-4">Functional Area</th>
               <th className="px-6 py-4">Completion Date</th>
@@ -160,14 +137,14 @@ const OpenReports = () => {
             )}
             {!loading && filteredReports.map((row, i) => (
               <tr key={i} className="hover:bg-gray-50">
-                <td className="px-6 py-4 font-mono text-xs text-green-600 font-bold">{row.audit_id}</td>
-                <td className="px-6 py-4 font-bold text-gray-800">{row.location_name}</td>
+                <td className="px-6 py-4 font-mono text-xs text-green-600 font-bold">{getReportRef(row.audit_id)}</td>
+                <td className="px-6 py-4 font-bold text-gray-800">{row.prakalpa_name}</td>
                 <td className="px-6 py-4">{row.functional_area}</td>
-                <td className="px-6 py-4 text-gray-700">{formatDate(row.completion_date)}</td>
+                <td className="px-6 py-4 text-gray-700">{formatDate(row.completion_date || row.schedule_end_date)}</td>
                 <td className="px-6 py-4 text-right">
-                   <button onClick={() => handleViewReport(row)} className="text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded text-xs font-bold flex items-center gap-2 ml-auto">
-                     <Eye size={14}/> View Report
-                   </button>
+                    <button onClick={() => handleViewReport(row)} className="text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded text-xs font-bold flex items-center gap-2 ml-auto">
+                      <Eye size={14}/> View Report
+                    </button>
                 </td>
               </tr>
             ))}
@@ -206,7 +183,7 @@ const OpenReports = () => {
                                 <h1 className="text-3xl font-bold text-gray-900 uppercase tracking-wide">Internal Audit Report</h1>
                                 <p className="text-gray-500 mt-1">Pratibimba Audit System • 2025-26</p>
                                 <p className="text-sm font-mono text-gray-600 mt-1">
-                                    Report Ref: <strong>{selectedReport.report_id || selectedReport.audit_id.replace("IQA", "IAR")}</strong>
+                                    Report Ref: <strong>{getReportRef(selectedReport.audit_id)}</strong>
                                 </p>
                             </div>
                             <div className="text-right">
@@ -223,7 +200,7 @@ const OpenReports = () => {
                         <div className="grid grid-cols-2 gap-8 bg-gray-50 p-6 rounded-lg print:bg-transparent print:p-0 print:border">
                             <div>
                                 <h3 className="text-xs font-bold text-gray-400 uppercase mb-1">Location (Prakalpa)</h3>
-                                <p className="text-lg font-bold text-gray-800">{selectedReport.location_name}</p>
+                                <p className="text-lg font-bold text-gray-800">{selectedReport.prakalpa_name}</p>
                             </div>
                             <div>
                                 <h3 className="text-xs font-bold text-gray-400 uppercase mb-1">Functional Area</h3>
@@ -231,8 +208,9 @@ const OpenReports = () => {
                             </div>
                             <div>
                                 <h3 className="text-xs font-bold text-gray-400 uppercase mb-1">Audit Team</h3>
-                                <p className="text-sm text-gray-700"><strong>Auditors:</strong> {getNames(selectedReport.assigned_auditors)}</p>
-                                <p className="text-sm text-gray-700"><strong>Auditees:</strong> {getNames(selectedReport.assigned_auditees)}</p>
+                                <p className="text-sm text-gray-700"><strong>Coordinator:</strong> {selectedReport.coordinator_name || 'N/A'}</p>
+                                <p className="text-sm text-gray-700"><strong>Auditors:</strong> {selectedReport.assigned_auditors || 'N/A'}</p>
+                                <p className="text-sm text-gray-700"><strong>Auditees:</strong> {selectedReport.assigned_auditees || 'N/A'}</p>
                             </div>
                             <div>
                                 <h3 className="text-xs font-bold text-gray-400 uppercase mb-1">Timeline</h3>
@@ -240,7 +218,7 @@ const OpenReports = () => {
                                     <strong>Scheduled:</strong> {formatDate(selectedReport.schedule_start_date)}
                                 </p>
                                 <p className="text-sm text-gray-700">
-                                    <strong>Completed:</strong> {formatDate(selectedReport.completion_date)}
+                                    <strong>Completed:</strong> {formatDate(selectedReport.completion_date || selectedReport.schedule_end_date)}
                                 </p>
                             </div>
                         </div>
@@ -279,21 +257,14 @@ const OpenReports = () => {
                                 <table className="w-full text-left text-sm border">
                                     <thead className="bg-gray-100 text-gray-700 uppercase font-bold text-xs">
                                         <tr>
-                                            <th className="p-3 border">Ref ID</th>
                                             <th className="p-3 border">Type</th>
                                             <th className="p-3 border">Area</th>
                                             <th className="p-3 border">Observation</th>
-                                            <th className="p-3 border">Status</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y">
                                         {reportDetails.observations.map((obs, i) => (
                                             <tr key={i}>
-                                                {/* 🟢 USE SMART ID GENERATOR */}
-                                                <td className="p-3 border font-mono font-bold text-gray-600 w-24">
-                                                    {getDisplayID(obs, reportDetails.observations)}
-                                                </td>
-                                                
                                                 <td className="p-3 border w-32">
                                                     <span className={`px-2 py-1 rounded text-xs font-bold ${obs.type.includes('Non') ? 'bg-red-100 text-red-800' : (obs.type.includes('Improvement') ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800')}`}>
                                                         {obs.type.split(' ')[0]} 
@@ -301,14 +272,6 @@ const OpenReports = () => {
                                                 </td>
                                                 <td className="p-3 border w-1/4 font-medium text-gray-700">{obs.functional_area}</td>
                                                 <td className="p-3 border text-gray-600 whitespace-pre-wrap">{obs.observation_text}</td>
-                                                
-                                                <td className="p-3 border w-24">
-                                                    {obs.status === 'Open' ? (
-                                                        <span className="text-red-600 font-bold text-xs">OPEN</span>
-                                                    ) : (
-                                                        <span className="text-green-600 font-bold text-xs">CLOSED</span>
-                                                    )}
-                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
