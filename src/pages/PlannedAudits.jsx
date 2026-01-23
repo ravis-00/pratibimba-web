@@ -241,7 +241,6 @@ const PlannedAudits = () => {
   const uniqueStatuses = useMemo(() => [...new Set(plans.map(p => p.status).filter(Boolean))].sort(), [plans]);
   const uniqueCoordinators = useMemo(() => [...new Set(plans.map(p => p.coordinator_name).filter(Boolean))].sort(), [plans]);
 
-  // 🟢 CALCULATE COUNTS (Global for current AY)
   const statusCounts = useMemo(() => {
       const counts = { planned: 0, scheduled: 0, completed: 0 };
       plans.forEach(p => {
@@ -277,7 +276,7 @@ const PlannedAudits = () => {
     return items;
   }, [filteredPlans, sortConfig]);
 
-  // Pagination Calculation
+  // Pagination
   const totalItems = sortedPlans.length;
   const totalPages = Math.ceil(totalItems / itemsPerPage);
   const indexOfLastItem = currentPage * itemsPerPage;
@@ -289,33 +288,28 @@ const PlannedAudits = () => {
   const requestSort = (key) => setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === "ascending" ? "descending" : "ascending" }));
   const SortIcon = ({ col }) => sortConfig.key !== col ? <ArrowUpDown size={14} className="text-gray-300"/> : sortConfig.direction === "ascending" ? <ArrowUp size={14} className="text-blue-600"/> : <ArrowDown size={14} className="text-blue-600"/>;
 
-  // 🟢 SMART FILTER HANDLERS (Fixes "No Records" issue)
+  // SMART FILTER HANDLERS
   const handleStatusChange = (val) => {
       setStatusFilter(val);
-      setCurrentPage(1); // Reset page to 1
-      
-      // If user selects "Scheduled" or "Completed", we MUST switch to "All Audits" mode
-      // otherwise they will see nothing because "Planning Queue" hides those statuses.
-      if (val && val !== 'Planned') {
-          setShowPlannedOnly(false);
-      }
+      setCurrentPage(1); 
+      if (val && val !== 'Planned') setShowPlannedOnly(false);
   };
 
   const handleCoordinatorChange = (val) => {
       setCoordinatorFilter(val);
-      setCurrentPage(1); // Reset page to 1
+      setCurrentPage(1); 
   };
 
   const handleSearchChange = (val) => {
       setSearchTerm(val);
-      setCurrentPage(1); // Reset page to 1
+      setCurrentPage(1);
   };
 
   const clearFilters = () => {
       setSearchTerm("");
       setStatusFilter("");
       setCoordinatorFilter("");
-      setCurrentPage(1); // Reset page to 1
+      setCurrentPage(1);
   };
 
   const handleExport = () => {
@@ -396,7 +390,6 @@ const PlannedAudits = () => {
                value={searchTerm} onChange={e => handleSearchChange(e.target.value)} />
            </div>
            
-           {/* 🟢 FIXED STATUS FILTER (Auto-switches View) */}
            <div className="relative w-full xl:w-40">
              <Filter className="absolute left-3 top-3 text-gray-400" size={16} />
              <select className="w-full pl-9 pr-8 py-2.5 border rounded-lg outline-none" value={statusFilter} onChange={e => handleStatusChange(e.target.value)}>
@@ -405,7 +398,6 @@ const PlannedAudits = () => {
              </select>
            </div>
            
-           {/* 🟢 FIXED COORDINATOR FILTER (Resets Page) */}
            <div className="relative w-full xl:w-48">
              <User className="absolute left-3 top-3 text-gray-400" size={16} />
              <select className="w-full pl-9 pr-8 py-2.5 border rounded-lg outline-none" value={coordinatorFilter} onChange={e => handleCoordinatorChange(e.target.value)}>
@@ -492,7 +484,7 @@ const PlannedAudits = () => {
         )}
       </div>
 
-      {/* MODALS REMAIN THE SAME */}
+      {/* MODALS */}
       {/* SCHEDULING MODAL */}
       {editData && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
@@ -624,7 +616,7 @@ const PlannedAudits = () => {
         </div>
       )}
 
-      {/* REPORT VIEWER MODAL */}
+      {/* 🟢 REPORT VIEWER MODAL */}
       {reportData && (
         <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto backdrop-blur-sm flex justify-center items-start pt-10 pb-10">
           <div className="bg-white w-full max-w-4xl shadow-2xl rounded-xl overflow-hidden">
@@ -647,14 +639,70 @@ const PlannedAudits = () => {
                             <div><span className="font-bold text-xs text-gray-500 uppercase">Location</span> <p>{reportData.prakalpa_name}</p></div>
                             <div><span className="font-bold text-xs text-gray-500 uppercase">Functional Area</span> <p>{reportData.functional_area}</p></div>
                         </div>
+
+                        {/* 🟢 EXECUTIVE SUMMARY WITH INLINE CALCULATION */}
                         <div>
-                            <h3 className="font-bold mb-2">Observations</h3>
-                            {reportData.observations.length === 0 ? <p className="text-gray-400 italic">No observations found.</p> : (
+                             <h3 className="font-bold text-gray-800 text-lg border-b mb-4">Executive Summary</h3>
+                             <div className="flex gap-4">
+                                 {/* NON-CONFORMANCE: Inline Filter */}
+                                 <div className="flex-1 bg-red-50 border border-red-100 p-4 rounded text-center">
+                                     <div className="text-3xl font-bold text-red-600">
+                                         {reportData.observations.filter(o => 
+                                            (o.type || "").toLowerCase().includes('non') || (o.type || "").toLowerCase().includes('nc')
+                                         ).length}
+                                     </div>
+                                     <div className="text-xs text-red-800 font-bold uppercase">Non-Conformances</div>
+                                 </div>
+                                 {/* OFI: Inline Filter */}
+                                 <div className="flex-1 bg-blue-50 border border-blue-100 p-4 rounded text-center">
+                                     <div className="text-3xl font-bold text-blue-600">
+                                         {reportData.observations.filter(o => 
+                                            (o.type || "").toLowerCase().includes('improvement') || (o.type || "").toLowerCase().includes('opportunity') || (o.type || "").toLowerCase().includes('ofi')
+                                         ).length}
+                                     </div>
+                                     <div className="text-xs text-blue-800 font-bold uppercase">Opportunities (OFI)</div>
+                                 </div>
+                                 {/* GOOD PRACTICE: Inline Filter */}
+                                 <div className="flex-1 bg-green-50 border border-green-100 p-4 rounded text-center">
+                                     <div className="text-3xl font-bold text-green-600">
+                                         {reportData.observations.filter(o => 
+                                            (o.type || "").toLowerCase().includes('good') || (o.type || "").toLowerCase().includes('compliant') || (o.type || "").toLowerCase().includes('best')
+                                         ).length}
+                                     </div>
+                                     <div className="text-xs text-green-800 font-bold uppercase">Good Practices</div>
+                                 </div>
+                             </div>
+                        </div>
+
+                        {/* DETAILED FINDINGS */}
+                        <div>
+                            <h3 className="font-bold mb-2">Detailed Findings</h3>
+                            {reportData.observations.length === 0 ? <p className="text-gray-400 italic">No specific observations recorded.</p> : (
                                 <table className="w-full border text-sm">
-                                    <thead className="bg-gray-100"><tr><th className="p-2 border">Type</th><th className="p-2 border">Observation</th></tr></thead>
-                                    <tbody>
+                                    <thead className="bg-gray-100 uppercase text-xs font-bold text-gray-700">
+                                        <tr>
+                                            <th className="p-3 border w-32">Type</th>
+                                            <th className="p-3 border w-24">Area</th>
+                                            <th className="p-3 border">Observation</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y">
                                         {reportData.observations.map((obs, i) => (
-                                            <tr key={i}><td className="p-2 border font-bold text-xs">{obs.type}</td><td className="p-2 border">{obs.observation_text}</td></tr>
+                                            <tr key={i}>
+                                                <td className="p-3 border">
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                                        (obs.type || "").toLowerCase().includes('non') || (obs.type || "").toLowerCase().includes('nc') 
+                                                        ? 'bg-red-100 text-red-800' 
+                                                        : (obs.type || "").toLowerCase().includes('improvement') || (obs.type || "").toLowerCase().includes('opportunity') || (obs.type || "").toLowerCase().includes('ofi')
+                                                        ? 'bg-blue-100 text-blue-800' 
+                                                        : 'bg-green-100 text-green-800'
+                                                    }`}>
+                                                        {obs.type ? obs.type.split(' ')[0] : 'N/A'} 
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 border font-medium text-gray-700">{obs.functional_area}</td>
+                                                <td className="p-3 border text-gray-600 whitespace-pre-wrap">{obs.observation_text}</td>
+                                            </tr>
                                         ))}
                                     </tbody>
                                 </table>

@@ -91,6 +91,19 @@ const OpenReports = () => {
     (r.audit_id || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // 🟢 Helper to calculate counts safely
+  const getCounts = (obsList) => {
+      if(!obsList) return { nc: 0, ofi: 0, gp: 0 };
+      let nc = 0, ofi = 0, gp = 0;
+      obsList.forEach(o => {
+          const t = (o.type || "").toLowerCase();
+          if(t.includes('non') || t.includes('nc')) nc++;
+          else if(t.includes('improvement') || t.includes('opportunity') || t.includes('ofi')) ofi++;
+          else if(t.includes('good') || t.includes('compliant') || t.includes('best')) gp++;
+      });
+      return { nc, ofi, gp };
+  };
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* HEADER */}
@@ -226,26 +239,26 @@ const OpenReports = () => {
                         {/* 3. EXECUTIVE SUMMARY */}
                         <div>
                              <h3 className="font-bold text-gray-800 text-lg border-b mb-4">Executive Summary</h3>
-                             <div className="flex gap-4">
-                                 <div className="flex-1 bg-red-50 border border-red-100 p-4 rounded text-center">
-                                     <div className="text-3xl font-bold text-red-600">
-                                         {reportDetails.observations.filter(o => o.type.includes('Non-Conformance')).length}
+                             {/* 🟢 USE HELPER FUNCTION FOR COUNTS */}
+                             {(() => {
+                                 const counts = getCounts(reportDetails.observations);
+                                 return (
+                                     <div className="flex gap-4">
+                                         <div className="flex-1 bg-red-50 border border-red-100 p-4 rounded text-center">
+                                             <div className="text-3xl font-bold text-red-600">{counts.nc}</div>
+                                             <div className="text-xs text-red-800 font-bold uppercase">Non-Conformances</div>
+                                         </div>
+                                         <div className="flex-1 bg-blue-50 border border-blue-100 p-4 rounded text-center">
+                                             <div className="text-3xl font-bold text-blue-600">{counts.ofi}</div>
+                                             <div className="text-xs text-blue-800 font-bold uppercase">Opportunities (OFI)</div>
+                                         </div>
+                                         <div className="flex-1 bg-green-50 border border-green-100 p-4 rounded text-center">
+                                             <div className="text-3xl font-bold text-green-600">{counts.gp}</div>
+                                             <div className="text-xs text-green-800 font-bold uppercase">Good Practices</div>
+                                         </div>
                                      </div>
-                                     <div className="text-xs text-red-800 font-bold uppercase">Non-Conformances</div>
-                                 </div>
-                                 <div className="flex-1 bg-blue-50 border border-blue-100 p-4 rounded text-center">
-                                     <div className="text-3xl font-bold text-blue-600">
-                                         {reportDetails.observations.filter(o => o.type.includes('Improvement')).length}
-                                     </div>
-                                     <div className="text-xs text-blue-800 font-bold uppercase">Opportunities (OFI)</div>
-                                 </div>
-                                 <div className="flex-1 bg-green-50 border border-green-100 p-4 rounded text-center">
-                                     <div className="text-3xl font-bold text-green-600">
-                                         {reportDetails.observations.filter(o => o.type.includes('Good') || o.type.includes('Compliant')).length}
-                                     </div>
-                                     <div className="text-xs text-green-800 font-bold uppercase">Good Practices</div>
-                                 </div>
-                             </div>
+                                 );
+                             })()}
                         </div>
 
                         {/* 4. DETAILED FINDINGS */}
@@ -263,17 +276,25 @@ const OpenReports = () => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y">
-                                        {reportDetails.observations.map((obs, i) => (
-                                            <tr key={i}>
-                                                <td className="p-3 border w-32">
-                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${obs.type.includes('Non') ? 'bg-red-100 text-red-800' : (obs.type.includes('Improvement') ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800')}`}>
-                                                        {obs.type.split(' ')[0]} 
-                                                    </span>
-                                                </td>
-                                                <td className="p-3 border w-1/4 font-medium text-gray-700">{obs.functional_area}</td>
-                                                <td className="p-3 border text-gray-600 whitespace-pre-wrap">{obs.observation_text}</td>
-                                            </tr>
-                                        ))}
+                                        {reportDetails.observations.map((obs, i) => {
+                                            const t = (obs.type || "").toLowerCase();
+                                            let badgeClass = 'bg-gray-100 text-gray-800';
+                                            if(t.includes('non') || t.includes('nc')) badgeClass = 'bg-red-100 text-red-800';
+                                            else if(t.includes('improvement') || t.includes('opportunity')) badgeClass = 'bg-blue-100 text-blue-800';
+                                            else if(t.includes('good') || t.includes('compliant')) badgeClass = 'bg-green-100 text-green-800';
+
+                                            return (
+                                                <tr key={i}>
+                                                    <td className="p-3 border w-32">
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${badgeClass}`}>
+                                                            {obs.type ? obs.type.split(' ')[0] : 'Note'} 
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-3 border w-1/4 font-medium text-gray-700">{obs.functional_area}</td>
+                                                    <td className="p-3 border text-gray-600 whitespace-pre-wrap">{obs.observation_text}</td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             )}
