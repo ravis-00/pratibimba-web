@@ -11,7 +11,7 @@ const PlannedAudits = () => {
   const navigate = useNavigate();
 
   // 🟢 GET CURRENT USER
-  const currentUser = JSON.parse(localStorage.getItem('user')) || { role: 'Guest', full_name: '' };
+  const currentUser = JSON.parse(localStorage.getItem('user')) || { role: 'Guest', full_name: '', prakalpa_name: '' };
   const isAdmin = currentUser.role === 'Admin' || currentUser.role === 'Super Admin';
 
   // CALCULATE CURRENT AY (e.g. "2025-26")
@@ -124,9 +124,13 @@ const PlannedAudits = () => {
       let query = supabase.from('audit_plan').select('*');
       
       // 🟢 RBAC LOGIC: 
-      // If NOT Admin, strictly filter by their own name as Coordinator
+      // If NOT Admin, filter by (Coordinator IS Me) OR (Location IS My Location)
       if (!isAdmin) {
-          query = query.eq('coordinator_name', currentUser.full_name);
+          const myName = currentUser.full_name || 'Unknown';
+          const myLoc = currentUser.prakalpa_name || 'Unknown';
+          
+          // Supabase 'or' syntax: "column.eq.value,column.eq.value"
+          query = query.or(`coordinator_name.eq.${myName},prakalpa_name.eq.${myLoc}`);
       }
 
       if (ayFilter) query = query.eq('ay_year', ayFilter);
@@ -151,7 +155,7 @@ const PlannedAudits = () => {
     } finally {
       setLoading(false);
     }
-  }, [ayFilter, isAdmin, currentUser.full_name]);
+  }, [ayFilter, isAdmin, currentUser.full_name, currentUser.prakalpa_name]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -243,10 +247,10 @@ const PlannedAudits = () => {
   };
 
   const getAuditeeOptions = () => users.filter(u => {
-     const r = normalize(u.role);
-     const isEligible = r.includes('auditee') || r.includes('coordinator');
-     const isLocationMatch = normalize(u.prakalpa_name) === normalize(editData?.prakalpa_name);
-     return isEligible && isLocationMatch;
+      const r = normalize(u.role);
+      const isEligible = r.includes('auditee') || r.includes('coordinator');
+      const isLocationMatch = normalize(u.prakalpa_name) === normalize(editData?.prakalpa_name);
+      return isEligible && isLocationMatch;
   }).sort((a,b) => (a.full_name || "").localeCompare(b.full_name || ""));
 
   // --- SORTING & RENDERING ---
@@ -491,7 +495,8 @@ const PlannedAudits = () => {
                         </button>
                     ) : (
                         <>
-                            {plan.status === 'Planned' && (
+                            {/* 🟢 EDIT/DELETE/SCHEDULE - RESTRICTED TO ADMIN/COORDINATOR */}
+                            {(isAdmin || plan.coordinator_name === currentUser.full_name) && plan.status === 'Planned' && (
                                 <button onClick={() => openScheduleModal(plan)} className="text-blue-600 hover:bg-blue-50 p-1.5 rounded border border-blue-100" title="Schedule Audit">
                                     <CalendarClock size={16} />
                                 </button>
@@ -553,14 +558,14 @@ const PlannedAudits = () => {
 
                  <div className="grid grid-cols-2 gap-4">
                     <div>
-                       <label className="block text-xs font-bold text-gray-500 mb-1">Start Date</label>
-                       <input type="date" required className="w-full border rounded p-2 text-sm" 
-                          value={editForm.schedule_start_date} onChange={e=>setEditForm({...editForm, schedule_start_date: e.target.value})} />
+                        <label className="block text-xs font-bold text-gray-500 mb-1">Start Date</label>
+                        <input type="date" required className="w-full border rounded p-2 text-sm" 
+                           value={editForm.schedule_start_date} onChange={e=>setEditForm({...editForm, schedule_start_date: e.target.value})} />
                     </div>
                     <div>
-                       <label className="block text-xs font-bold text-gray-500 mb-1">End Date</label>
-                       <input type="date" required className="w-full border rounded p-2 text-sm" 
-                          value={editForm.schedule_end_date} onChange={e=>setEditForm({...editForm, schedule_end_date: e.target.value})} />
+                        <label className="block text-xs font-bold text-gray-500 mb-1">End Date</label>
+                        <input type="date" required className="w-full border rounded p-2 text-sm" 
+                           value={editForm.schedule_end_date} onChange={e=>setEditForm({...editForm, schedule_end_date: e.target.value})} />
                     </div>
                  </div>
 
@@ -716,24 +721,24 @@ const PlannedAudits = () => {
                             {reportData.observations.length === 0 ? <p className="text-gray-400 italic">No specific observations recorded.</p> : (
                                 <table className="w-full border text-sm">
                                     <thead className="bg-gray-100 uppercase text-xs font-bold text-gray-700">
-                                        <tr>
-                                            <th className="p-3 border w-32">Type</th>
-                                            <th className="p-3 border w-24">Area</th>
-                                            <th className="p-3 border">Observation</th>
-                                        </tr>
+                                            <tr>
+                                                <th className="p-3 border w-32">Type</th>
+                                                <th className="p-3 border w-24">Area</th>
+                                                <th className="p-3 border">Observation</th>
+                                            </tr>
                                     </thead>
                                     <tbody className="divide-y">
-                                        {reportData.observations.map((obs, i) => (
-                                            <tr key={i}>
-                                                <td className="p-3 border">
-                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${obs.type.toLowerCase().includes('non') || obs.type.toLowerCase().includes('nc') ? 'bg-red-100 text-red-800' : (obs.type.toLowerCase().includes('improvement') || obs.type.toLowerCase().includes('opportunity') ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800')}`}>
-                                                        {obs.type.split(' ')[0]} 
-                                                    </span>
-                                                </td>
-                                                <td className="p-3 border font-medium text-gray-700">{obs.functional_area}</td>
-                                                <td className="p-3 border text-gray-600 whitespace-pre-wrap">{obs.observation_text}</td>
-                                            </tr>
-                                        ))}
+                                            {reportData.observations.map((obs, i) => (
+                                                <tr key={i}>
+                                                    <td className="p-3 border">
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${obs.type.toLowerCase().includes('non') || obs.type.toLowerCase().includes('nc') ? 'bg-red-100 text-red-800' : (obs.type.toLowerCase().includes('improvement') || obs.type.toLowerCase().includes('opportunity') ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800')}`}>
+                                                            {obs.type.split(' ')[0]} 
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-3 border font-medium text-gray-700">{obs.functional_area}</td>
+                                                    <td className="p-3 border text-gray-600 whitespace-pre-wrap">{obs.observation_text}</td>
+                                                </tr>
+                                            ))}
                                     </tbody>
                                 </table>
                             )}

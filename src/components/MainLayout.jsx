@@ -11,57 +11,69 @@ import {
   Users,    // For User Management
   Map,      // For Locations (Prakalpas)
   Settings, // For Master Settings
-  CheckCircle // 🟢 Added for Action Items
+  CheckCircle // For Action Items
 } from 'lucide-react';
 
 const MainLayout = ({ user, onLogout }) => {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  // 🟢 DETERMINE USER ROLE
+  const currentUser = user || { role: 'Guest', full_name: '' };
+  const isAdmin = currentUser.role === 'Admin' || currentUser.role === 'Super Admin';
+  const isAuditee = currentUser.role === 'Auditee';
+
   // 🟢 NAVIGATION MENU ITEMS
   const menuItems = [
     { 
       name: 'Dashboard', 
       path: '/', 
-      icon: <LayoutDashboard size={20} /> 
+      icon: <LayoutDashboard size={20} />,
+      visible: true 
     },
     { 
       name: 'Audit Planning', 
       path: '/planning', 
-      icon: <FilePlus size={20} /> 
+      icon: <FilePlus size={20} />,
+      visible: true 
     },
     { 
       name: 'Scheduled Audits', 
       path: '/scheduled', 
-      icon: <CalendarCheck size={20} /> 
+      icon: <CalendarCheck size={20} />,
+      visible: !isAuditee // 🟢 HIDDEN FOR AUDITEES
     },
     { 
       name: 'Open Reports', 
       path: '/reports/open', 
-      icon: <FileText size={20} /> 
+      icon: <FileText size={20} />,
+      visible: true 
     },
-    // 🟢 NEW ITEM: Action Items (CAPA)
     { 
       name: 'My Action Items', 
       path: '/action-items', 
-      icon: <CheckCircle size={20} /> 
+      icon: <CheckCircle size={20} />,
+      visible: true 
     },
     
-    // 👇 ADMIN SECTION
+    // 👇 ADMIN SECTION (Only visible to Admins)
     {
       name: 'User Management',
       path: '/admin/users',
-      icon: <Users size={20} />
+      icon: <Users size={20} />,
+      visible: isAdmin
     },
     {
       name: 'Prakalpas', 
       path: '/admin/locations',
-      icon: <Map size={20} />
+      icon: <Map size={20} />,
+      visible: isAdmin
     },
     {
       name: 'System Masters', 
       path: '/admin/masters',
-      icon: <Settings size={20} /> 
+      icon: <Settings size={20} />,
+      visible: isAdmin 
     }
   ];
 
@@ -100,7 +112,7 @@ const MainLayout = ({ user, onLogout }) => {
 
         {/* Navigation Links */}
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-          {menuItems.map((item) => (
+          {menuItems.filter(item => item.visible).map((item) => (
             <Link
               key={item.path}
               to={item.path}

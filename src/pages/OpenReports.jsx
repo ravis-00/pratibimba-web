@@ -13,7 +13,7 @@ const OpenReports = () => {
   const [loadingDetails, setLoadingDetails] = useState(false);
 
   // 🟢 1. GET CURRENT USER & ROLE
-  const currentUser = JSON.parse(localStorage.getItem('user')) || { role: 'Guest', full_name: '' };
+  const currentUser = JSON.parse(localStorage.getItem('user')) || { role: 'Guest', full_name: '', prakalpa_name: '' };
   const isAdmin = currentUser.role === 'Admin' || currentUser.role === 'Super Admin';
 
   // 1. Fetch Completed Audits
@@ -29,9 +29,13 @@ const OpenReports = () => {
         .order('completion_date', { ascending: false }); // Newest first
 
       // 🟢 2. RBAC FILTERING
-      // If NOT Admin, strictly filter reports by Coordinator Name
+      // If NOT Admin, filter by (Coordinator Name OR Location Name)
       if (!isAdmin) {
-          query = query.eq('coordinator_name', currentUser.full_name);
+          const myName = currentUser.full_name || 'Unknown';
+          const myLoc = currentUser.prakalpa_name || 'Unknown';
+          
+          // Supabase 'or' syntax: filter rows where coordinator is ME OR prakalpa is MY LOCATION
+          query = query.or(`coordinator_name.eq.${myName},prakalpa_name.eq.${myLoc}`);
       }
 
       const { data, error } = await query;
@@ -126,7 +130,7 @@ const OpenReports = () => {
             <FileText className="text-green-600" /> Audit Reports
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-             {isAdmin ? "View and print finalized audit reports." : `Reports for audits coordinated by ${currentUser.full_name}`}
+             {isAdmin ? "View and print finalized audit reports." : `Reports available for ${currentUser.prakalpa_name || currentUser.full_name}`}
           </p>
         </div>
         <div className="flex gap-2">
