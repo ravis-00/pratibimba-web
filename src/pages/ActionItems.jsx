@@ -11,6 +11,10 @@ const ActionItems = () => {
   // Local state to track input for each item
   const [actionInputs, setActionInputs] = useState({});
 
+  // 🟢 1. GET CURRENT USER DETAILS
+  const currentUser = JSON.parse(localStorage.getItem('user')) || { role: 'Guest', full_name: '', prakalpa_name: '' };
+  const isAdmin = currentUser.role === 'Admin' || currentUser.role === 'Super Admin';
+
   useEffect(() => {
     fetchActionItems();
   }, [tab]);
@@ -34,7 +38,7 @@ const ActionItems = () => {
       const { data: obsData, error: obsError } = await query;
       if (obsError) throw obsError;
 
-      // STEP 2: Manually fetch location details
+      // STEP 2: Manually fetch location details to check ownership
       if (obsData && obsData.length > 0) {
           const auditIds = [...new Set(obsData.map(item => item.audit_id))];
           const { data: planData, error: planError } = await supabase
@@ -45,13 +49,29 @@ const ActionItems = () => {
           if (planError) throw planError;
 
           // Merge Data
-          const mergedData = obsData.map(obs => {
+          let mergedData = obsData.map(obs => {
               const planInfo = planData.find(p => p.audit_id === obs.audit_id);
               return { 
                   ...obs, 
                   audit_plan: planInfo || { prakalpa_name: 'Unknown Location', coordinator_name: 'N/A' } 
               };
           });
+
+          // 🟢 3. RBAC FILTERING
+          if (!isAdmin) {
+             mergedData = mergedData.filter(item => {
+                 // User can see the item IF:
+                 // A. They are the Coordinator for that specific audit
+                 const isCoordinator = item.audit_plan.coordinator_name === currentUser.full_name;
+                 
+                 // B. OR They belong to that Prakalpa (Location) - e.g. An Auditee at "Yoga Kendra"
+                 const userLoc = (currentUser.prakalpa_name || '').trim().toLowerCase();
+                 const itemLoc = (item.audit_plan.prakalpa_name || '').trim().toLowerCase();
+                 const isLocationUser = userLoc && itemLoc === userLoc;
+                 
+                 return isCoordinator || isLocationUser;
+             });
+          }
 
           // Filter for Non-Conformances Only
           const finalData = mergedData.filter(item => {
@@ -122,7 +142,9 @@ const ActionItems = () => {
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <CheckSquare className="text-purple-600" /> My Action Items (CAPA)
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Track and close Non-Conformances (NCs).</p>
+          <p className="text-sm text-gray-500 mt-1">
+             {isAdmin ? "Track and close all Non-Conformances." : `Action items for ${currentUser.full_name}`}
+          </p>
         </div>
         
         <div className="flex bg-white p-1 rounded-lg border shadow-sm">
@@ -185,7 +207,7 @@ const ActionItems = () => {
                           )}
                       </div>
 
-                      {/* Middle: The Finding & 🟢 OBSERVATION ID */}
+                      {/* Middle: The Finding & OBSERVATION ID */}
                       <div>
                         <h3 className="text-gray-800 font-bold text-sm mb-1">{item.functional_area}</h3>
                         
@@ -195,7 +217,7 @@ const ActionItems = () => {
                             <div className="flex justify-between items-center mb-1">
                                 <span className="text-xs font-bold text-red-800 uppercase">Finding</span>
                                 
-                                {/* 🟢 NEW: Observation ID Badge */}
+                                {/* Observation ID Badge */}
                                 <span className="font-mono text-xs font-bold text-gray-500 bg-white px-2 py-0.5 rounded border border-gray-200 shadow-sm" title="Observation ID">
                                     {item.observation_id || "ID Missing"}
                                 </span>

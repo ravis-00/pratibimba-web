@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Plus, Search, RefreshCw, Calendar, MapPin, User, Trash2,
   CalendarClock, Filter, X, ChevronLeft, ChevronRight,
-  Download, ArrowUpDown, ArrowUp, ArrowDown, Eye, Edit3, Save, Archive, CheckSquare, Square, Clock, ListFilter, FileText, Printer, CheckCircle, PieChart
+  Download, ArrowUpDown, ArrowUp, ArrowDown, Eye, Edit3, Save, Archive, CheckSquare, Square, Clock, ListFilter, FileText, Printer, CheckCircle, PieChart, Layers
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -10,7 +10,11 @@ import { supabase } from "../supabase";
 const PlannedAudits = () => {
   const navigate = useNavigate();
 
-  // 🟢 CALCULATE CURRENT AY (e.g. "2025-26")
+  // 🟢 GET CURRENT USER
+  const currentUser = JSON.parse(localStorage.getItem('user')) || { role: 'Guest', full_name: '' };
+  const isAdmin = currentUser.role === 'Admin' || currentUser.role === 'Super Admin';
+
+  // CALCULATE CURRENT AY (e.g. "2025-26")
   const getCurrentAY = () => {
     const d = new Date();
     const year = d.getFullYear();
@@ -116,8 +120,15 @@ const PlannedAudits = () => {
       const { data: areaData } = await supabase.from('master_dropdowns').select('value, parent_value').eq('category', 'Audit Area').eq('status', 'Active');
       if (areaData) setMasterAuditAreas(areaData);
 
-      // 4. Fetch Plans
+      // 4. Fetch Plans with RBAC (Role Based Access Control)
       let query = supabase.from('audit_plan').select('*');
+      
+      // 🟢 RBAC LOGIC: 
+      // If NOT Admin, strictly filter by their own name as Coordinator
+      if (!isAdmin) {
+          query = query.eq('coordinator_name', currentUser.full_name);
+      }
+
       if (ayFilter) query = query.eq('ay_year', ayFilter);
       
       const { data, error } = await query;
@@ -140,11 +151,12 @@ const PlannedAudits = () => {
     } finally {
       setLoading(false);
     }
-  }, [ayFilter]);
+  }, [ayFilter, isAdmin, currentUser.full_name]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleDelete = async (id) => {
+    if (!isAdmin) return alert("Only Admins can delete audit plans.");
     if (!window.confirm(`Delete Audit ${id}?`)) return;
     const { error } = await supabase.from('audit_plan').delete().eq('audit_id', id);
     if (!error) { alert("Deleted"); setPlans(p => p.filter(x => x.audit_id !== id)); }
@@ -323,6 +335,29 @@ const PlannedAudits = () => {
     link.click();
   };
 
+  // CALCULATE REPORT COUNTS (Helper Function)
+  const getReportCounts = () => {
+    if (!reportData || !reportData.observations) return { nc: 0, ofi: 0, gp: 0 };
+    
+    let nc = 0, ofi = 0, gp = 0;
+    
+    reportData.observations.forEach(o => {
+        const type = (o.type || "").toLowerCase();
+        
+        if (type.includes('non') || type.includes('nc')) {
+            nc++;
+        } else if (type.includes('improvement') || type.includes('opportunity') || type.includes('ofi')) {
+            ofi++;
+        } else if (type.includes('good') || type.includes('compliant') || type.includes('best practice')) {
+            gp++;
+        }
+    });
+    
+    return { nc, ofi, gp };
+  };
+
+  const reportCounts = getReportCounts(); 
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20">
       
@@ -330,19 +365,23 @@ const PlannedAudits = () => {
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between bg-white p-5 rounded-xl shadow-sm border border-gray-100">
         <div>
             <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Calendar className="text-blue-600" /> Audit Planning</h1>
-            <p className="text-sm text-gray-500 mt-1">Create and manage your yearly audit calendar.</p>
+            <p className="text-sm text-gray-500 mt-1">
+                {isAdmin ? "Manage the entire organization's audit calendar." : `Viewing audit plan for ${currentUser.full_name}`}
+            </p>
         </div>
         <div className="flex gap-2">
             <button onClick={handleExport} className="bg-white border p-2 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-2 px-3 text-sm font-medium"><Download size={18} /> CSV</button>
             <button onClick={fetchData} className="bg-white border p-2 rounded-lg hover:bg-gray-50"><RefreshCw size={20} /></button>
-            <button onClick={() => navigate("/planning/new")} className="bg-blue-600 text-white px-5 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-700"><Plus size={18} /> Create Plan</button>
+            {isAdmin && (
+                <button onClick={() => navigate("/planning/new")} className="bg-blue-600 text-white px-5 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-700"><Plus size={18} /> Create Plan</button>
+            )}
         </div>
       </div>
 
       {/* STATUS SUMMARY BAR */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
-              <div><p className="text-xs text-gray-500 uppercase font-bold">Total Planned</p><p className="text-xl font-bold text-gray-800">{plans.length}</p></div>
+              <div><p className="text-xs text-gray-500 uppercase font-bold">Total Assigned</p><p className="text-xl font-bold text-gray-800">{plans.length}</p></div>
               <div className="bg-gray-100 p-2 rounded-full text-gray-600"><PieChart size={20}/></div>
           </div>
           <div className="bg-white p-4 rounded-xl shadow-sm border border-yellow-100 flex items-center justify-between">
@@ -398,13 +437,16 @@ const PlannedAudits = () => {
              </select>
            </div>
            
-           <div className="relative w-full xl:w-48">
-             <User className="absolute left-3 top-3 text-gray-400" size={16} />
-             <select className="w-full pl-9 pr-8 py-2.5 border rounded-lg outline-none" value={coordinatorFilter} onChange={e => handleCoordinatorChange(e.target.value)}>
-                <option value="">All Coordinators</option>
-                {uniqueCoordinators.map(c => <option key={c} value={c}>{c}</option>)}
-             </select>
-           </div>
+           {/* ONLY SHOW COORDINATOR FILTER TO ADMINS */}
+           {isAdmin && (
+               <div className="relative w-full xl:w-48">
+                 <User className="absolute left-3 top-3 text-gray-400" size={16} />
+                 <select className="w-full pl-9 pr-8 py-2.5 border rounded-lg outline-none" value={coordinatorFilter} onChange={e => handleCoordinatorChange(e.target.value)}>
+                    <option value="">All Coordinators</option>
+                    {uniqueCoordinators.map(c => <option key={c} value={c}>{c}</option>)}
+                 </select>
+               </div>
+           )}
            
            {(searchTerm || statusFilter || coordinatorFilter) && (
              <button onClick={clearFilters} className="px-4 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg font-bold flex items-center gap-2">
@@ -457,9 +499,12 @@ const PlannedAudits = () => {
                             <button onClick={() => setViewData(plan)} className="text-gray-500 hover:bg-gray-100 p-1.5 rounded border border-gray-100" title="View Details">
                                 <Eye size={16} />
                             </button>
-                            <button onClick={() => handleDelete(plan.audit_id)} className="text-red-400 hover:bg-red-50 p-1.5 rounded border border-red-100" title="Delete">
-                                <Trash2 size={16} />
-                            </button>
+                            {/* Only Admins can Delete */}
+                            {isAdmin && (
+                                <button onClick={() => handleDelete(plan.audit_id)} className="text-red-400 hover:bg-red-50 p-1.5 rounded border border-red-100" title="Delete">
+                                    <Trash2 size={16} />
+                                </button>
+                            )}
                         </>
                     )}
                   </td>
@@ -640,34 +685,25 @@ const PlannedAudits = () => {
                             <div><span className="font-bold text-xs text-gray-500 uppercase">Functional Area</span> <p>{reportData.functional_area}</p></div>
                         </div>
 
-                        {/* 🟢 EXECUTIVE SUMMARY WITH INLINE CALCULATION */}
+                        {/* 🟢 EXECUTIVE SUMMARY WITH PRE-CALCULATED COUNTS */}
                         <div>
                              <h3 className="font-bold text-gray-800 text-lg border-b mb-4">Executive Summary</h3>
                              <div className="flex gap-4">
-                                 {/* NON-CONFORMANCE: Inline Filter */}
                                  <div className="flex-1 bg-red-50 border border-red-100 p-4 rounded text-center">
                                      <div className="text-3xl font-bold text-red-600">
-                                         {reportData.observations.filter(o => 
-                                            (o.type || "").toLowerCase().includes('non') || (o.type || "").toLowerCase().includes('nc')
-                                         ).length}
+                                         {reportCounts.nc}
                                      </div>
                                      <div className="text-xs text-red-800 font-bold uppercase">Non-Conformances</div>
                                  </div>
-                                 {/* OFI: Inline Filter */}
                                  <div className="flex-1 bg-blue-50 border border-blue-100 p-4 rounded text-center">
                                      <div className="text-3xl font-bold text-blue-600">
-                                         {reportData.observations.filter(o => 
-                                            (o.type || "").toLowerCase().includes('improvement') || (o.type || "").toLowerCase().includes('opportunity') || (o.type || "").toLowerCase().includes('ofi')
-                                         ).length}
+                                         {reportCounts.ofi}
                                      </div>
                                      <div className="text-xs text-blue-800 font-bold uppercase">Opportunities (OFI)</div>
                                  </div>
-                                 {/* GOOD PRACTICE: Inline Filter */}
                                  <div className="flex-1 bg-green-50 border border-green-100 p-4 rounded text-center">
                                      <div className="text-3xl font-bold text-green-600">
-                                         {reportData.observations.filter(o => 
-                                            (o.type || "").toLowerCase().includes('good') || (o.type || "").toLowerCase().includes('compliant') || (o.type || "").toLowerCase().includes('best')
-                                         ).length}
+                                         {reportCounts.gp}
                                      </div>
                                      <div className="text-xs text-green-800 font-bold uppercase">Good Practices</div>
                                  </div>
@@ -690,14 +726,8 @@ const PlannedAudits = () => {
                                         {reportData.observations.map((obs, i) => (
                                             <tr key={i}>
                                                 <td className="p-3 border">
-                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${
-                                                        (obs.type || "").toLowerCase().includes('non') || (obs.type || "").toLowerCase().includes('nc') 
-                                                        ? 'bg-red-100 text-red-800' 
-                                                        : (obs.type || "").toLowerCase().includes('improvement') || (obs.type || "").toLowerCase().includes('opportunity') || (obs.type || "").toLowerCase().includes('ofi')
-                                                        ? 'bg-blue-100 text-blue-800' 
-                                                        : 'bg-green-100 text-green-800'
-                                                    }`}>
-                                                        {obs.type ? obs.type.split(' ')[0] : 'N/A'} 
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${obs.type.toLowerCase().includes('non') || obs.type.toLowerCase().includes('nc') ? 'bg-red-100 text-red-800' : (obs.type.toLowerCase().includes('improvement') || obs.type.toLowerCase().includes('opportunity') ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800')}`}>
+                                                        {obs.type.split(' ')[0]} 
                                                     </span>
                                                 </td>
                                                 <td className="p-3 border font-medium text-gray-700">{obs.functional_area}</td>

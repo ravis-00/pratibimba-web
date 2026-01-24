@@ -12,16 +12,29 @@ const OpenReports = () => {
   const [reportDetails, setReportDetails] = useState(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
+  // 🟢 1. GET CURRENT USER & ROLE
+  const currentUser = JSON.parse(localStorage.getItem('user')) || { role: 'Guest', full_name: '' };
+  const isAdmin = currentUser.role === 'Admin' || currentUser.role === 'Super Admin';
+
   // 1. Fetch Completed Audits
   const fetchData = async () => {
     try {
       setLoading(true);
       
-      const { data, error } = await supabase
+      // Start Query
+      let query = supabase
         .from('audit_plan')
         .select('*')
         .eq('status', 'Completed') // Only completed reports
         .order('completion_date', { ascending: false }); // Newest first
+
+      // 🟢 2. RBAC FILTERING
+      // If NOT Admin, strictly filter reports by Coordinator Name
+      if (!isAdmin) {
+          query = query.eq('coordinator_name', currentUser.full_name);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       
@@ -112,7 +125,9 @@ const OpenReports = () => {
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <FileText className="text-green-600" /> Audit Reports
           </h1>
-          <p className="text-sm text-gray-500 mt-1">View and print finalized audit reports.</p>
+          <p className="text-sm text-gray-500 mt-1">
+             {isAdmin ? "View and print finalized audit reports." : `Reports for audits coordinated by ${currentUser.full_name}`}
+          </p>
         </div>
         <div className="flex gap-2">
             <div className="relative">

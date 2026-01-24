@@ -102,8 +102,8 @@ const AuditExecution = () => {
           const recordsToInsert = observations.map(({ id, ...rest }, index) => ({
               ...rest,
               audit_id: auditId,
-              // Generate a unique ID string (e.g., "IQAN25154-OBS-1")
-              observation_id: `${auditId}-OBS-${Date.now()}-${index}`
+              // Generate a unique ID string (e.g., "IQAN25154-OBS-01")
+              observation_id: `${auditId}-OBS-${String(index + 1).padStart(2, '0')}`
           }));
 
           // A. Save Observations FIRST
@@ -146,8 +146,12 @@ const AuditExecution = () => {
       {/* HEADER */}
       <div className="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm z-10">
         <div>
-            <div className="flex items-center gap-2 text-gray-500 text-sm mb-1 cursor-pointer hover:text-blue-600" onClick={() => navigate('/scheduled-audits')}>
-                <ArrowLeft size={16}/> Back to Schedule
+            {/* 🟢 FIXED: Navigate to the exact path defined in App.jsx */}
+            <div 
+              className="flex items-center gap-2 text-gray-500 text-sm mb-1 cursor-pointer hover:text-blue-600" 
+              onClick={() => navigate('/scheduled')} 
+            >
+              <ArrowLeft size={16}/> Back to Schedule
             </div>
             <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
                 <FileText className="text-purple-600"/> Execution: {plan.prakalpa_name} ({plan.audit_id})

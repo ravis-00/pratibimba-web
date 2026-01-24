@@ -25,6 +25,10 @@ const ScheduledAudits = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
+  // 🟢 1. GET CURRENT USER & ROLE
+  const currentUser = JSON.parse(localStorage.getItem('user')) || { role: 'Guest', full_name: '' };
+  const isAdmin = currentUser.role === 'Admin' || currentUser.role === 'Super Admin';
+
   // Modal & Toast State
   const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
   const [toast, setToast] = useState(null);
@@ -33,7 +37,7 @@ const ScheduledAudits = () => {
       audit_id: '',
       prakalpa_name: '', 
       functional_area: '',
-      coordinator_name: '', // 🟢 Added Coordinator Name to State
+      coordinator_name: '', 
       schedule_start_date: '',
       schedule_end_date: '',
       schedule_time: '', 
@@ -47,7 +51,6 @@ const ScheduledAudits = () => {
   // 1. HELPERS
   // =========================
   
-  // Safely parse dates
   const toInputDate = (dateString) => {
     if (!dateString) return "";
     try {
@@ -90,11 +93,19 @@ const ScheduledAudits = () => {
     try {
       setLoading(true);
       
-      const { data: auditData, error: auditError } = await supabase
+      // 🟢 2. RBAC QUERY FILTERING
+      let query = supabase
         .from('audit_plan')
         .select('*')
         .eq('status', 'Scheduled')
         .order('schedule_start_date', { ascending: true });
+
+      // If NOT Admin, only show audits assigned to this coordinator
+      if (!isAdmin) {
+          query = query.eq('coordinator_name', currentUser.full_name);
+      }
+
+      const { data: auditData, error: auditError } = await query;
 
       if (auditError) throw auditError;
 
@@ -125,6 +136,12 @@ const ScheduledAudits = () => {
   // =========================
 
   const handleDelete = async (auditId) => {
+    // 🟢 3. RBAC DELETE PROTECTION
+    if (!isAdmin) {
+        showToast("Permission Denied: Only Admins can delete audits.", 'error');
+        return;
+    }
+
     if (!window.confirm(`Are you sure you want to delete Audit ${auditId}? This cannot be undone.`)) return;
     
     try {
@@ -140,7 +157,7 @@ const ScheduledAudits = () => {
       audit_id: row.audit_id,
       prakalpa_name: row.prakalpa_name,
       functional_area: row.functional_area,
-      coordinator_name: row.coordinator_name || '', // 🟢 Map Coordinator Name
+      coordinator_name: row.coordinator_name || '', 
       schedule_start_date: toInputDate(row.schedule_start_date || row.planned_date),
       schedule_end_date: toInputDate(row.schedule_end_date || row.planned_date),
       schedule_time: row.schedule_time || '',
@@ -221,7 +238,9 @@ const ScheduledAudits = () => {
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <Clock className="text-purple-600" /> Scheduled Audits
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Manage schedules and conduct audits.</p>
+          <p className="text-sm text-gray-500 mt-1">
+             {isAdmin ? "Manage all scheduled audits." : `Audits assigned to ${currentUser.full_name}`}
+          </p>
         </div>
         
         <div className="flex gap-2">
@@ -274,7 +293,7 @@ const ScheduledAudits = () => {
                   <div className="flex flex-col">
                     <span className="font-bold text-gray-700">{formatDateRange(row.schedule_start_date, row.schedule_end_date)}</span>
                     <span className="text-xs text-gray-400 flex items-center gap-1">
-                       <Clock size={10}/> {row.schedule_time || 'All Day'}
+                        <Clock size={10}/> {row.schedule_time || 'All Day'}
                     </span>
                   </div>
                 </td>
@@ -309,9 +328,13 @@ const ScheduledAudits = () => {
                             <button onClick={() => handleEditSchedule(row)} className="text-gray-500 hover:bg-gray-100 p-1.5 rounded border" title="Reschedule">
                                 <Edit size={14} />
                             </button>
-                            <button onClick={() => handleDelete(row.audit_id)} className="text-red-400 hover:bg-red-50 p-1.5 rounded border" title="Delete">
-                                <Trash2 size={14} />
-                            </button>
+                            
+                            {/* Only Admins see Delete Button */}
+                            {isAdmin && (
+                                <button onClick={() => handleDelete(row.audit_id)} className="text-red-400 hover:bg-red-50 p-1.5 rounded border" title="Delete">
+                                    <Trash2 size={14} />
+                                </button>
+                            )}
                         </div>
                     </div>
                 </td>
@@ -338,7 +361,6 @@ const ScheduledAudits = () => {
                 <p><strong>Area:</strong> {scheduleData.functional_area}</p>
               </div>
 
-              {/* 🟢 NEW: Read-Only Coordinator Field */}
               <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">Audit Coordinator</label>
                   <input className="w-full border rounded px-3 py-2 bg-gray-100 text-gray-600" readOnly value={scheduleData.coordinator_name} />
@@ -360,7 +382,6 @@ const ScheduledAudits = () => {
                   <input type="text" className="w-full border rounded px-3 py-2" placeholder="Enter time range" value={scheduleData.schedule_time} onChange={e => setScheduleData({...scheduleData, schedule_time: e.target.value})} />
               </div>
 
-              {/* Assign Auditors (Manual) */}
               <div>
                   <label className="block text-xs font-bold text-gray-500 mb-2">Assign Auditors (Names)</label>
                   <textarea 
@@ -372,7 +393,6 @@ const ScheduledAudits = () => {
                   ></textarea>
               </div>
 
-              {/* Assign Auditees */}
               <div className="border rounded p-3 bg-white">
                   <label className="block text-xs font-bold text-gray-500 mb-2">Assign Auditees (Matching Location)</label>
                   <div className="space-y-2 max-h-32 overflow-y-auto">
