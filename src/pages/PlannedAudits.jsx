@@ -2,10 +2,27 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Plus, Search, RefreshCw, Calendar, MapPin, User, Trash2,
   CalendarClock, Filter, X, ChevronLeft, ChevronRight,
-  Download, ArrowUpDown, ArrowUp, ArrowDown, Eye, Edit3, Save, Archive, CheckSquare, Square, Clock, ListFilter, FileText, Printer, CheckCircle, PieChart, Layers
+  Download, ArrowUpDown, ArrowUp, ArrowDown, Eye, Save, Archive, CheckSquare, Square, Clock, ListFilter, FileText, Printer, CheckCircle, PieChart, Layers, AlertCircle
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
+
+// 🟢 INTERNAL TOAST COMPONENT
+const Toast = ({ message, type, onClose }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  const bgColor = type === 'success' ? 'bg-green-600' : 'bg-red-600';
+
+  return (
+    <div className={`fixed top-4 right-4 ${bgColor} text-white px-6 py-3 rounded-lg shadow-xl z-[100] flex items-center gap-2 animate-fade-in`}>
+      {type === 'success' ? <CheckCircle size={20}/> : <AlertCircle size={20}/>}
+      <span className="font-bold">{type === 'success' ? 'Success' : 'Error'}:</span> {message}
+    </div>
+  );
+};
 
 const PlannedAudits = () => {
   const navigate = useNavigate();
@@ -31,6 +48,7 @@ const PlannedAudits = () => {
   const [masterAuditAreas, setMasterAuditAreas] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [toast, setToast] = useState(null); // Toast State
 
   // View Toggle State (Default = true, show only Planned)
   const [showPlannedOnly, setShowPlannedOnly] = useState(true);
@@ -56,7 +74,7 @@ const PlannedAudits = () => {
   const [editForm, setEditForm] = useState({
     schedule_start_date: "",
     schedule_end_date: "",
-    schedule_time: "",
+    schedule_time: "9:30 to 5:30", // Default
     prakalpa_name: "", 
     functional_area: "",
     coordinator_name: "", 
@@ -69,6 +87,8 @@ const PlannedAudits = () => {
   // =========================
   // 2. HELPERS
   // =========================
+  const showToast = (msg, type = 'success') => setToast({ message: msg, type });
+
   const toInputDate = (dateString) => {
     if (!dateString) return "";
     try {
@@ -123,13 +143,10 @@ const PlannedAudits = () => {
       // 4. Fetch Plans with RBAC (Role Based Access Control)
       let query = supabase.from('audit_plan').select('*');
       
-      // 🟢 RBAC LOGIC: 
-      // If NOT Admin, filter by (Coordinator IS Me) OR (Location IS My Location)
+      // 🟢 RBAC LOGIC
       if (!isAdmin) {
           const myName = currentUser.full_name || 'Unknown';
           const myLoc = currentUser.prakalpa_name || 'Unknown';
-          
-          // Supabase 'or' syntax: "column.eq.value,column.eq.value"
           query = query.or(`coordinator_name.eq.${myName},prakalpa_name.eq.${myLoc}`);
       }
 
@@ -152,6 +169,7 @@ const PlannedAudits = () => {
       }
     } catch (error) {
       console.error("Fetch error:", error);
+      showToast("Failed to load data", "error");
     } finally {
       setLoading(false);
     }
@@ -160,10 +178,16 @@ const PlannedAudits = () => {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleDelete = async (id) => {
-    if (!isAdmin) return alert("Only Admins can delete audit plans.");
+    if (!isAdmin) return showToast("Permission Denied: Only Admins can delete.", "error");
     if (!window.confirm(`Delete Audit ${id}?`)) return;
+    
     const { error } = await supabase.from('audit_plan').delete().eq('audit_id', id);
-    if (!error) { alert("Deleted"); setPlans(p => p.filter(x => x.audit_id !== id)); }
+    if (!error) { 
+        showToast("Audit Plan deleted successfully", "success"); 
+        setPlans(p => p.filter(x => x.audit_id !== id)); 
+    } else {
+        showToast("Delete failed: " + error.message, "error");
+    }
   };
 
   const handleOpenReport = async (plan) => {
@@ -182,7 +206,7 @@ const PlannedAudits = () => {
               observations: findings || []
           });
       } catch (e) {
-          alert("Error loading report: " + e.message);
+          showToast("Error loading report: " + e.message, "error");
       } finally {
           setLoadingReport(false);
       }
@@ -193,7 +217,7 @@ const PlannedAudits = () => {
     setEditForm({
         schedule_start_date: toInputDate(item.schedule_start_date || item.planned_date),
         schedule_end_date: toInputDate(item.schedule_end_date || item.planned_date),
-        schedule_time: item.schedule_time || "",
+        schedule_time: item.schedule_time || "9:30 to 5:30", // Default to Full Day
         prakalpa_name: item.prakalpa_name || "", 
         functional_area: item.functional_area || "",
         coordinator_name: item.coordinator_name || "",
@@ -222,11 +246,11 @@ const PlannedAudits = () => {
     try {
         const { error } = await supabase.from('audit_plan').update(payload).eq('audit_id', editData.audit_id);
         if (error) throw error;
-        alert("Audit Scheduled Successfully!");
+        showToast("Audit Scheduled Successfully!", "success");
         setEditData(null);
         fetchData();
     } catch (error) {
-        alert("Error saving: " + error.message);
+        showToast("Error saving: " + error.message, "error");
     } finally {
         setSubmitting(false);
     }
@@ -270,7 +294,6 @@ const PlannedAudits = () => {
   const filteredPlans = useMemo(() => {
     const term = searchTerm.toLowerCase();
     
-    // 1. PRIMARY TOGGLE FILTER
     let baseList = plans;
     if (showPlannedOnly) {
         baseList = baseList.filter(p => p.status === 'Planned');
@@ -304,7 +327,7 @@ const PlannedAudits = () => {
   const requestSort = (key) => setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === "ascending" ? "descending" : "ascending" }));
   const SortIcon = ({ col }) => sortConfig.key !== col ? <ArrowUpDown size={14} className="text-gray-300"/> : sortConfig.direction === "ascending" ? <ArrowUp size={14} className="text-blue-600"/> : <ArrowDown size={14} className="text-blue-600"/>;
 
-  // SMART FILTER HANDLERS
+  // HANDLERS
   const handleStatusChange = (val) => {
       setStatusFilter(val);
       setCurrentPage(1); 
@@ -329,7 +352,7 @@ const PlannedAudits = () => {
   };
 
   const handleExport = () => {
-    if (filteredPlans.length === 0) return alert("No data");
+    if (filteredPlans.length === 0) return showToast("No data to export", "error");
     const headers = ["ID", "AY", "Prakalpa", "Area", "Coordinator", "Planned Date", "Status"];
     const rows = filteredPlans.map(r => [csvEscape(r.audit_id), csvEscape(r.ay_year), csvEscape(r.prakalpa_name), csvEscape(r.functional_area), csvEscape(r.coordinator_name), csvEscape(formatDate(r.planned_date)), csvEscape(r.status)]);
     const csvContent = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
@@ -339,24 +362,15 @@ const PlannedAudits = () => {
     link.click();
   };
 
-  // CALCULATE REPORT COUNTS (Helper Function)
   const getReportCounts = () => {
     if (!reportData || !reportData.observations) return { nc: 0, ofi: 0, gp: 0 };
-    
     let nc = 0, ofi = 0, gp = 0;
-    
     reportData.observations.forEach(o => {
         const type = (o.type || "").toLowerCase();
-        
-        if (type.includes('non') || type.includes('nc')) {
-            nc++;
-        } else if (type.includes('improvement') || type.includes('opportunity') || type.includes('ofi')) {
-            ofi++;
-        } else if (type.includes('good') || type.includes('compliant') || type.includes('best practice')) {
-            gp++;
-        }
+        if (type.includes('non') || type.includes('nc')) nc++;
+        else if (type.includes('improvement') || type.includes('opportunity')) ofi++;
+        else if (type.includes('good') || type.includes('compliant')) gp++;
     });
-    
     return { nc, ofi, gp };
   };
 
@@ -365,6 +379,8 @@ const PlannedAudits = () => {
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20">
       
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
       {/* HEADER */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between bg-white p-5 rounded-xl shadow-sm border border-gray-100">
         <div>
@@ -382,7 +398,7 @@ const PlannedAudits = () => {
         </div>
       </div>
 
-      {/* STATUS SUMMARY BAR */}
+      {/* STATUS SUMMARY */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
               <div><p className="text-xs text-gray-500 uppercase font-bold">Total Assigned</p><p className="text-xl font-bold text-gray-800">{plans.length}</p></div>
@@ -402,7 +418,7 @@ const PlannedAudits = () => {
           </div>
       </div>
 
-      {/* FILTERS & TOGGLE */}
+      {/* FILTERS */}
       <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
         <div className="flex justify-between items-center mb-4 border-b pb-4">
             <div className="flex items-center gap-3">
@@ -441,7 +457,6 @@ const PlannedAudits = () => {
              </select>
            </div>
            
-           {/* ONLY SHOW COORDINATOR FILTER TO ADMINS */}
            {isAdmin && (
                <div className="relative w-full xl:w-48">
                  <User className="absolute left-3 top-3 text-gray-400" size={16} />
@@ -495,7 +510,6 @@ const PlannedAudits = () => {
                         </button>
                     ) : (
                         <>
-                            {/* 🟢 EDIT/DELETE/SCHEDULE - RESTRICTED TO ADMIN/COORDINATOR */}
                             {(isAdmin || plan.coordinator_name === currentUser.full_name) && plan.status === 'Planned' && (
                                 <button onClick={() => openScheduleModal(plan)} className="text-blue-600 hover:bg-blue-50 p-1.5 rounded border border-blue-100" title="Schedule Audit">
                                     <CalendarClock size={16} />
@@ -504,7 +518,6 @@ const PlannedAudits = () => {
                             <button onClick={() => setViewData(plan)} className="text-gray-500 hover:bg-gray-100 p-1.5 rounded border border-gray-100" title="View Details">
                                 <Eye size={16} />
                             </button>
-                            {/* Only Admins can Delete */}
                             {isAdmin && (
                                 <button onClick={() => handleDelete(plan.audit_id)} className="text-red-400 hover:bg-red-50 p-1.5 rounded border border-red-100" title="Delete">
                                     <Trash2 size={16} />
@@ -519,7 +532,7 @@ const PlannedAudits = () => {
           </table>
         </div>
         
-        {/* PAGINATION FOOTER */}
+        {/* PAGINATION */}
         {!loading && filteredPlans.length > 0 && (
             <div className="flex flex-col md:flex-row justify-between items-center px-6 py-4 border-t bg-gray-50">
                 <span className="text-sm text-gray-600 mb-2 md:mb-0">
@@ -534,8 +547,7 @@ const PlannedAudits = () => {
         )}
       </div>
 
-      {/* MODALS */}
-      {/* SCHEDULING MODAL */}
+      {/* 🟢 SCHEDULING MODAL */}
       {editData && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
@@ -569,12 +581,20 @@ const PlannedAudits = () => {
                     </div>
                  </div>
 
+                 {/* 🟢 UPDATED TIME SLOT DROPDOWN */}
                  <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">Time (e.g. 10 AM - 2 PM)</label>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Time Slot & Agenda</label>
                     <div className="relative">
                         <Clock className="absolute left-3 top-2.5 text-gray-400" size={16}/>
-                        <input type="text" className="w-full border rounded pl-10 pr-3 py-2 text-sm" placeholder="Enter time range"
-                            value={editForm.schedule_time} onChange={e=>setEditForm({...editForm, schedule_time: e.target.value})} />
+                        <select 
+                            className="w-full border rounded pl-10 pr-3 py-2 text-sm bg-white"
+                            value={editForm.schedule_time}
+                            onChange={(e) => setEditForm({...editForm, schedule_time: e.target.value})}
+                        >
+                            <option value="9:30 to 5:30">Full Day (9:30 AM - 5:30 PM)</option>
+                            <option value="9:30 to 1:30">Morning Half (9:30 AM - 1:30 PM)</option>
+                            <option value="2:00 to 5:30">Afternoon Half (2:00 PM - 5:30 PM)</option>
+                        </select>
                     </div>
                  </div>
 
@@ -582,12 +602,12 @@ const PlannedAudits = () => {
                     <div>
                         <label className="block text-xs font-bold text-gray-500 mb-1">Functional Area</label>
                         <input className="w-full border rounded p-2 text-sm bg-gray-50" readOnly 
-                            value={editForm.functional_area} />
+                           value={editForm.functional_area} />
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-gray-500 mb-1">Audit Coordinator</label>
                         <input className="w-full border rounded p-2 text-sm bg-gray-50" readOnly 
-                            value={editForm.coordinator_name} />
+                           value={editForm.coordinator_name} />
                     </div>
                  </div>
 
@@ -627,11 +647,6 @@ const PlannedAudits = () => {
                             </div>
                         ))}
                     </div>
-                 </div>
-
-                 <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1">Status</label>
-                    <input className="w-full border rounded p-2 text-sm bg-gray-100 text-gray-500" readOnly value={editForm.status} />
                  </div>
 
                  <div className="flex justify-end gap-2 pt-2 border-t">
@@ -690,26 +705,20 @@ const PlannedAudits = () => {
                             <div><span className="font-bold text-xs text-gray-500 uppercase">Functional Area</span> <p>{reportData.functional_area}</p></div>
                         </div>
 
-                        {/* 🟢 EXECUTIVE SUMMARY WITH PRE-CALCULATED COUNTS */}
+                        {/* EXECUTIVE SUMMARY */}
                         <div>
                              <h3 className="font-bold text-gray-800 text-lg border-b mb-4">Executive Summary</h3>
                              <div className="flex gap-4">
                                  <div className="flex-1 bg-red-50 border border-red-100 p-4 rounded text-center">
-                                     <div className="text-3xl font-bold text-red-600">
-                                         {reportCounts.nc}
-                                     </div>
+                                     <div className="text-3xl font-bold text-red-600">{reportCounts.nc}</div>
                                      <div className="text-xs text-red-800 font-bold uppercase">Non-Conformances</div>
                                  </div>
                                  <div className="flex-1 bg-blue-50 border border-blue-100 p-4 rounded text-center">
-                                     <div className="text-3xl font-bold text-blue-600">
-                                         {reportCounts.ofi}
-                                     </div>
+                                     <div className="text-3xl font-bold text-blue-600">{reportCounts.ofi}</div>
                                      <div className="text-xs text-blue-800 font-bold uppercase">Opportunities (OFI)</div>
                                  </div>
                                  <div className="flex-1 bg-green-50 border border-green-100 p-4 rounded text-center">
-                                     <div className="text-3xl font-bold text-green-600">
-                                         {reportCounts.gp}
-                                     </div>
+                                     <div className="text-3xl font-bold text-green-600">{reportCounts.gp}</div>
                                      <div className="text-xs text-green-800 font-bold uppercase">Good Practices</div>
                                  </div>
                              </div>

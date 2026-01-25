@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, MapPin, Users, Clock, Search, RefreshCw, Trash2, Edit, X, CheckSquare, Square, PlayCircle, UserCheck, User } from 'lucide-react';
+import { Calendar, MapPin, Users, Clock, Search, RefreshCw, Trash2, Edit, X, CheckSquare, Square, PlayCircle, UserCheck, User, Download } from 'lucide-react';
 import { useNavigate } from 'react-router-dom'; 
 import { supabase } from '../supabase';
+// 🟢 IMPORT THE PDF GENERATOR
+import { generateAuditSchedulePDF } from '../utils/printAuditSchedule';
 
 // Simple Toast Component
 const Toast = ({ message, type, onClose }) => {
@@ -134,6 +136,29 @@ const ScheduledAudits = () => {
   // =========================
   // 3. ACTIONS
   // =========================
+
+  // 🟢 NEW: HANDLE PDF DOWNLOAD
+  const handleDownloadSchedule = async (audit) => {
+    // We create a copy so we can attach extra details (like prakalpa_type)
+    let fullAuditDetails = { ...audit };
+    
+    // Attempt to fetch Prakalpa Type from master to decide Agenda (Full Day vs Half Day)
+    try {
+        if (!audit.prakalpa_type) {
+            const { data } = await supabase
+                .from('master_prakalpas')
+                .select('prakalpa_type')
+                .eq('prakalpa_name', audit.prakalpa_name)
+                .single();
+            
+            if (data) fullAuditDetails.prakalpa_type = data.prakalpa_type;
+        }
+    } catch (err) {
+        console.warn("Could not fetch prakalpa type, using default agenda", err);
+    }
+
+    generateAuditSchedulePDF(fullAuditDetails);
+  };
 
   const handleDelete = async (auditId) => {
     // 🟢 3. RBAC DELETE PROTECTION
@@ -319,10 +344,22 @@ const ScheduledAudits = () => {
 
                 <td className="px-6 py-4 text-right align-top">
                     <div className="flex flex-col gap-2 items-end">
-                        <button onClick={() => handleConductAudit(row.audit_id)} 
-                               className="bg-purple-600 text-white px-3 py-1.5 rounded text-xs font-bold flex items-center gap-2 hover:bg-purple-700 shadow-sm w-full justify-center">
-                          <PlayCircle size={14}/> Conduct Audit
-                        </button>
+                        <div className="flex gap-2 w-full">
+                            {/* 🟢 PDF BUTTON */}
+                            <button 
+                                onClick={() => handleDownloadSchedule(row)}
+                                className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-100 text-xs font-bold transition"
+                                title="Download Schedule PDF"
+                            >
+                                <Download size={14} className="text-red-600"/> 
+                                <span className="hidden xl:inline">PDF</span>
+                            </button>
+
+                            <button onClick={() => handleConductAudit(row.audit_id)} 
+                                   className="flex-[2] bg-purple-600 text-white px-3 py-1.5 rounded text-xs font-bold flex items-center justify-center gap-2 hover:bg-purple-700 shadow-sm">
+                              <PlayCircle size={14}/> Conduct
+                            </button>
+                        </div>
 
                         <div className="flex gap-2">
                             <button onClick={() => handleEditSchedule(row)} className="text-gray-500 hover:bg-gray-100 p-1.5 rounded border" title="Reschedule">
@@ -377,9 +414,18 @@ const ScheduledAudits = () => {
                  </div>
               </div>
 
+              {/* 🟢 ADDED DROPDOWN FOR TIME SLOT IN MODAL TOO */}
               <div>
-                  <label className="block text-xs font-bold text-gray-500 mb-1">Audit Time (e.g. 10:00 AM - 2:00 PM)</label>
-                  <input type="text" className="w-full border rounded px-3 py-2" placeholder="Enter time range" value={scheduleData.schedule_time} onChange={e => setScheduleData({...scheduleData, schedule_time: e.target.value})} />
+                  <label className="block text-xs font-bold text-gray-500 mb-1">Audit Time & Agenda</label>
+                  <select 
+                      className="w-full border rounded px-3 py-2 bg-white"
+                      value={scheduleData.schedule_time || "9:30 to 5:30"}
+                      onChange={e => setScheduleData({...scheduleData, schedule_time: e.target.value})}
+                  >
+                      <option value="9:30 to 5:30">Full Day (9:30 AM - 5:30 PM)</option>
+                      <option value="9:30 to 1:30">Morning Half (9:30 AM - 1:30 PM)</option>
+                      <option value="2:00 to 5:30">Afternoon Half (2:00 PM - 5:30 PM)</option>
+                  </select>
               </div>
 
               <div>
