@@ -4,7 +4,7 @@ import { supabase } from '../supabase';
 import { 
   ShieldCheck, Lock, Mail, Eye, EyeOff, 
   CalendarClock, ClipboardCheck, BarChart3, 
-  ArrowRight, AlertCircle, CheckCircle2 
+  ArrowRight, AlertCircle
 } from 'lucide-react';
 
 const Login = ({ onLogin }) => {
@@ -19,8 +19,6 @@ const Login = ({ onLogin }) => {
   // UI State
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  
-  // 🟢 LOGO STATE
   const [logoError, setLogoError] = useState(false);
 
   const handleLogin = async (e) => {
@@ -34,7 +32,7 @@ const Login = ({ onLogin }) => {
         .from('users')
         .select('*')
         .eq('email', email)
-        .eq('password', password) 
+        .eq('password', password)
         .single();
 
       if (dbUser) {
@@ -48,7 +46,7 @@ const Login = ({ onLogin }) => {
         password,
       });
 
-      if (authError) throw new Error("Invalid credentials. Please check your email and password.");
+      if (authError) throw new Error("Invalid credentials.");
 
       if (authData.user) {
          const { data: profile } = await supabase
@@ -56,11 +54,9 @@ const Login = ({ onLogin }) => {
           .select('*')
           .eq('email', email)
           .single();
-          
          const userData = profile || { email: email, role: 'User' };
          completeLogin(userData);
       }
-
     } catch (err) {
       console.error("Login Error:", err.message);
       setError(err.message);
@@ -76,96 +72,75 @@ const Login = ({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row font-sans text-slate-800 bg-slate-50">
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4 md:p-8 font-sans text-gray-800">
       
       {/* ==========================================
-          LEFT SECTION: BRANDING & CONTEXT (Orange Hero)
+          1. HEADER SECTION (Logo & Titles)
       ========================================== */}
-      <div className="md:w-1/2 lg:w-5/12 bg-gradient-to-br from-orange-700 via-orange-600 to-red-700 text-white flex flex-col justify-center px-12 py-16 relative overflow-hidden">
-        
-        {/* Decorative Background */}
-        <div className="absolute top-0 left-0 w-64 h-64 bg-orange-800 rounded-full mix-blend-multiply filter blur-3xl opacity-30 -translate-x-1/2 -translate-y-1/2"></div>
-        <div className="absolute bottom-0 right-0 w-96 h-96 bg-red-800 rounded-full mix-blend-multiply filter blur-3xl opacity-30 translate-x-1/3 translate-y-1/3"></div>
-
-        <div className="relative z-10">
-          
-          {/* 🟢 1. LOGO SECTION */}
-          <div className="flex items-center gap-4 mb-8">
-             {!logoError ? (
-                // OPTION A: Show Image (logo.png)
+      <div className="text-center mb-8">
+        <div className="flex justify-center mb-4">
+            {!logoError ? (
                 <img 
                   src="/logo.png" 
-                  alt="Organization Logo" 
-                  className="h-20 w-auto object-contain bg-white/90 rounded-lg p-2 shadow-lg"
-                  onError={() => {
-                      console.warn("Logo image failed to load. Switching to Shield Icon.");
-                      setLogoError(true);
-                  }} 
+                  alt="Logo" 
+                  className="h-20 w-auto object-contain"
+                  onError={() => setLogoError(true)}
                 />
-             ) : (
-                // OPTION B: Fallback Icon (If image is missing)
-                <div className="h-16 w-16 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center border border-white/30 shadow-inner">
-                   <ShieldCheck size={36} className="text-white" />
+            ) : (
+                <div className="h-16 w-16 bg-orange-100 rounded-xl flex items-center justify-center border border-orange-200 shadow-sm">
+                   <ShieldCheck size={36} className="text-orange-600" />
                 </div>
-             )}
-             
-             <div>
-                <p className="text-xs font-bold tracking-widest text-orange-200 uppercase mb-1">Rashtrotthana Parishat</p>
-                <h1 className="text-3xl font-bold tracking-tight text-white drop-shadow-sm">Pratibimba</h1>
-             </div>
-          </div>
-
-          <h2 className="text-4xl font-extrabold mb-6 leading-tight text-white">
-            Internal Quality <br/>
-            <span className="text-orange-200">Audit Management System</span>
-          </h2>
-          
-          <p className="text-orange-100 mb-10 text-lg leading-relaxed max-w-md font-medium">
-            Secure, centralized governance for planning, tracking, and closing internal audits across all institutions.
-          </p>
-
-          {/* Feature Cards */}
-          <div className="space-y-4">
-            <FeatureCard 
-              icon={<CalendarClock size={20}/>} 
-              title="Audit Planning" 
-              desc="Streamlined scheduling & compliance tracking." 
-            />
-            <FeatureCard 
-              icon={<ClipboardCheck size={20}/>} 
-              title="NC Closure Tracking" 
-              desc="Monitor non-conformances to resolution." 
-            />
-            <FeatureCard 
-              icon={<BarChart3 size={20}/>} 
-              title="Executive Insights" 
-              desc="Real-time visibility into quality health." 
-            />
-          </div>
+            )}
         </div>
-
-        <div className="mt-auto pt-10 relative z-10">
-           <p className="text-xs text-orange-200/80">© 2025 Rashtrotthana Parishat • Internal Use Only</p>
-        </div>
+        
+        <h2 className="text-xs font-bold tracking-widest text-gray-500 uppercase mb-1">
+            Rashtrotthana Parishat
+        </h2>
+        <h1 className="text-3xl md:text-4xl font-extrabold text-gray-900 tracking-tight mb-2">
+            Pratibimba
+        </h1>
+        <p className="text-gray-500 font-medium">
+            Internal Quality Audit Management System
+        </p>
       </div>
 
       {/* ==========================================
-          RIGHT SECTION: SECURE LOGIN FORM
+          2. FEATURE CARDS (Moved Above Login)
       ========================================== */}
-      <div className="md:w-1/2 lg:w-7/12 flex flex-col justify-center items-center p-8 bg-slate-50">
+      <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-4xl px-2">
         
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
-            
-            {/* Header */}
-            <div className="px-8 pt-8 pb-6">
-                <h2 className="text-2xl font-bold text-slate-800 mb-2">Welcome Back</h2>
-                <p className="text-slate-500 text-sm">Please sign in to your account.</p>
-            </div>
+        <FeatureCard 
+            icon={<CalendarClock size={20}/>}
+            title="Audit Planning"
+            desc="Streamlined scheduling & compliance tracking."
+        />
+        
+        <FeatureCard 
+            icon={<ClipboardCheck size={20}/>}
+            title="NC Closure Tracking"
+            desc="Monitor non-conformances to resolution."
+        />
+        
+        <FeatureCard 
+            icon={<BarChart3 size={20}/>}
+            title="Executive Insights"
+            desc="Real-time visibility into quality health."
+        />
 
-            {/* Form */}
-            <form onSubmit={handleLogin} className="px-8 pb-8 space-y-5">
+      </div>
+
+      {/* ==========================================
+          3. LOGIN CARD
+      ========================================== */}
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden relative z-10">
+        <div className="p-8">
+            <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
+               <span className="p-1.5 bg-orange-50 rounded text-orange-600"><Lock size={16}/></span> 
+               Secure Login
+            </h3>
+
+            <form onSubmit={handleLogin} className="space-y-5">
                 
-                {/* Error Alert */}
                 {error && (
                   <div className="p-3 bg-red-50 border border-red-100 rounded-lg flex items-start gap-3 text-red-700 text-sm animate-shake">
                     <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />
@@ -173,17 +148,17 @@ const Login = ({ onLogin }) => {
                   </div>
                 )}
 
-                {/* Email Field */}
+                {/* Email */}
                 <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Email Address</label>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Email</label>
                     <div className="relative group">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 group-focus-within:text-orange-600 transition-colors">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-orange-600 transition-colors">
                             <Mail size={18} />
                         </div>
                         <input
                             type="email"
                             required
-                            className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-orange-100 focus:border-orange-600 outline-none transition text-sm text-slate-800 font-medium placeholder:text-slate-300"
+                            className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-orange-100 focus:border-orange-500 outline-none transition text-sm font-medium"
                             placeholder="name@rashtrotthana.org"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
@@ -191,17 +166,17 @@ const Login = ({ onLogin }) => {
                     </div>
                 </div>
 
-                {/* Password Field */}
+                {/* Password */}
                 <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Password</label>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5 ml-1">Password</label>
                     <div className="relative group">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 group-focus-within:text-orange-600 transition-colors">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-orange-600 transition-colors">
                             <Lock size={18} />
                         </div>
                         <input
                             type={showPassword ? "text" : "password"}
                             required
-                            className="w-full pl-10 pr-10 py-3 rounded-lg border border-slate-300 bg-white focus:ring-2 focus:ring-orange-100 focus:border-orange-600 outline-none transition text-sm text-slate-800 font-medium placeholder:text-slate-300"
+                            className="w-full pl-10 pr-10 py-3 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-orange-100 focus:border-orange-500 outline-none transition text-sm font-medium"
                             placeholder="••••••••"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
@@ -209,65 +184,61 @@ const Login = ({ onLogin }) => {
                         <button 
                             type="button"
                             onClick={() => setShowPassword(!showPassword)}
-                            className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                            className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 cursor-pointer"
                         >
                             {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>
                     </div>
                 </div>
 
-                {/* Remember Me & Forgot Password */}
+                {/* Actions */}
                 <div className="flex items-center justify-between text-sm">
                     <label className="flex items-center gap-2 cursor-pointer group">
-                        <div className={`w-4 h-4 border rounded transition-colors flex items-center justify-center ${rememberMe ? 'bg-orange-600 border-orange-600' : 'border-slate-300 bg-white group-hover:border-orange-400'}`}>
-                            {rememberMe && <CheckCircle2 size={12} className="text-white" />}
-                        </div>
-                        <input type="checkbox" className="hidden" checked={rememberMe} onChange={() => setRememberMe(!rememberMe)} />
-                        <span className="text-slate-600 group-hover:text-slate-800 transition-colors">Remember me</span>
+                        <input type="checkbox" className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500" checked={rememberMe} onChange={() => setRememberMe(!rememberMe)} />
+                        <span className="text-gray-600 group-hover:text-gray-800">Remember me</span>
                     </label>
-                    <a href="#" className="font-semibold text-orange-700 hover:text-orange-800 hover:underline">Forgot password?</a>
+                    <a href="#" className="font-semibold text-orange-600 hover:text-orange-700 hover:underline">Forgot password?</a>
                 </div>
 
-                {/* Submit Button */}
+                {/* Button */}
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white font-bold py-3.5 px-4 rounded-lg shadow-md hover:shadow-lg active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed mt-2"
+                  className="w-full bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700 text-white font-bold py-3.5 px-4 rounded-lg shadow-md hover:shadow-lg active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                 >
                   {loading ? 'Authenticating...' : (
                     <>Sign In <ArrowRight size={18}/></>
                   )}
                 </button>
             </form>
-
-            {/* Footer Note */}
-            <div className="bg-slate-50 px-8 py-4 border-t border-slate-100 text-center">
-              <p className="text-xs text-slate-500 flex items-center justify-center gap-1.5">
-                <Lock size={12} /> Restricted Access — Authorized Personnel Only
-              </p>
-            </div>
         </div>
-
-        <div className="mt-8 text-center md:hidden">
-            <p className="text-xs text-slate-400">© 2025 Rashtrotthana Parishat</p>
+        
+        <div className="bg-gray-50 px-8 py-3 border-t border-gray-100 text-center">
+            <p className="text-[11px] text-gray-400 flex items-center justify-center gap-1.5 uppercase tracking-wide font-semibold">
+               <ShieldCheck size={12} /> Authorized Personnel Only
+            </p>
         </div>
-
       </div>
+
+      <div className="mt-12 text-center">
+         <p className="text-xs text-gray-400">© 2025 Rashtrotthana Parishat • Internal Use Only</p>
+      </div>
+
     </div>
   );
 };
 
-// Sub-component for Feature Cards
+// Reusable Clean Card Component
 const FeatureCard = ({ icon, title, desc }) => (
-  <div className="flex items-center gap-4 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors duration-300">
-    <div className="p-2 bg-white/10 rounded-lg text-orange-200">
-      {icon}
+    <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex items-start gap-3 hover:shadow-md transition-shadow duration-300">
+        <div className="p-2 bg-orange-50 text-orange-600 rounded-lg flex-shrink-0">
+            {icon}
+        </div>
+        <div>
+            <h4 className="font-bold text-gray-800 text-sm">{title}</h4>
+            <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{desc}</p>
+        </div>
     </div>
-    <div>
-      <h3 className="font-bold text-white text-sm">{title}</h3>
-      <p className="text-xs text-orange-100/80">{desc}</p>
-    </div>
-  </div>
 );
 
 export default Login;

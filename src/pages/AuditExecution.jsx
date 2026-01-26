@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { FileText, Plus, CheckCircle, AlertTriangle, Info, Save, ArrowLeft, ChevronRight, X, Edit3, Trash2 } from 'lucide-react';
+// 🟢 IMPORT THE NEW ID HELPER
+import { normalizeAuditID } from '../utils/idHelper';
 
 const AuditExecution = () => {
   const { auditId } = useParams();
@@ -27,10 +29,13 @@ const AuditExecution = () => {
     const fetchExecutionData = async () => {
       try {
         setLoading(true);
+        // 🟢 SAFETY: Clean the ID from the URL before querying
+        const cleanId = normalizeAuditID(auditId);
+
         const { data, error } = await supabase
           .from('audit_plan')
           .select('*')
-          .eq('audit_id', auditId)
+          .eq('audit_id', cleanId)
           .single();
 
         if (error) throw error;
@@ -64,7 +69,7 @@ const AuditExecution = () => {
 
     const newEntry = {
         id: Date.now(), // Temporary internal ID for React keys
-        audit_id: auditId,
+        audit_id: auditId, // Will be cleaned on save
         functional_area: selectedArea,
         type: newObs.type,
         observation_text: newObs.text,
@@ -94,16 +99,19 @@ const AuditExecution = () => {
       }
   };
 
-  // 4. Finalize & Save to DB
+  // 4. Finalize & Save to DB (HARDENED)
   const confirmFinalize = async () => {
       try {
+          // 🟢 CRITICAL FIX: Normalize the Audit ID before saving
+          // This ensures findings NEVER get attached to "IQAN25087(a)"
+          const cleanAuditId = normalizeAuditID(auditId);
+
           // Prepare records for DB
-          // 🟢 FIX: Generate 'observation_id' to match your table schema
           const recordsToInsert = observations.map(({ id, ...rest }, index) => ({
               ...rest,
-              audit_id: auditId,
-              // Generate a unique ID string (e.g., "IQAN25154-OBS-01")
-              observation_id: `${auditId}-OBS-${String(index + 1).padStart(2, '0')}`
+              audit_id: cleanAuditId, // 🔒 Force Clean Link
+              // Generate standard ID: IQAN25087-OBS-01
+              observation_id: `${cleanAuditId}-OBS-${String(index + 1).padStart(2, '0')}`
           }));
 
           // A. Save Observations FIRST
@@ -112,11 +120,10 @@ const AuditExecution = () => {
                   .from('audit_observations')
                   .insert(recordsToInsert);
               
-              // 🔴 CRITICAL ERROR CHECK
               if (obsError) {
                   console.error("Supabase Insert Error:", obsError);
-                  alert(`❌ Failed to save findings!\n\nDatabase Error: ${obsError.message}\n\nHint: Check if table columns match: observation_id, audit_id, functional_area, type, observation_text, status`);
-                  return; // STOP HERE. Do not mark as completed.
+                  alert(`❌ Failed to save findings!\n\nDatabase Error: ${obsError.message}`);
+                  return; // Stop here
               }
           }
 
@@ -124,12 +131,12 @@ const AuditExecution = () => {
           const { error } = await supabase
             .from('audit_plan')
             .update({ status: 'Completed', completion_date: new Date() })
-            .eq('audit_id', auditId);
+            .eq('audit_id', cleanAuditId); // 🔒 Update the clean ID record
 
           if (error) throw error;
 
           alert("Audit Finalized Successfully!");
-          navigate('/open-reports');
+          navigate('/reports/open'); // Updated to match your route
 
       } catch (e) {
           alert("Unexpected Error: " + e.message);
@@ -146,7 +153,6 @@ const AuditExecution = () => {
       {/* HEADER */}
       <div className="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm z-10">
         <div>
-            {/* 🟢 FIXED: Navigate to the exact path defined in App.jsx */}
             <div 
               className="flex items-center gap-2 text-gray-500 text-sm mb-1 cursor-pointer hover:text-blue-600" 
               onClick={() => navigate('/scheduled')} 

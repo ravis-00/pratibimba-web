@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Calendar, MapPin, User, Layers, Info } from 'lucide-react';
+import { ArrowLeft, Save, Layers, Info } from 'lucide-react';
+// 🟢 IMPORT THE NEW ID HELPER
+import { normalizeAuditID } from '../utils/idHelper';
 
 const CreateAuditPlan = () => {
   const navigate = useNavigate();
@@ -50,7 +52,6 @@ const CreateAuditPlan = () => {
     const month = d.getMonth(); // 0=Jan, 11=Dec
 
     // Financial Year starts April 1st.
-    // If Month is Jan(0), Feb(1), Mar(2) -> It belongs to Previous Year's cycle.
     const startYear = month < 3 ? year - 1 : year;
     const endYearShort = (startYear + 1).toString().slice(-2);
     
@@ -78,7 +79,8 @@ const CreateAuditPlan = () => {
     if (data && data.length > 0) {
       // Extract number: IQAN25152 -> 152
       const lastId = data[0].audit_id;
-      const numPart = lastId.replace(id_prefix, ''); 
+      // Remove prefix and any potential suffixes like (a) before parsing
+      const numPart = lastId.replace(id_prefix, '').replace(/\D/g, ''); 
       const lastNum = parseInt(numPart, 10);
       if (!isNaN(lastNum)) nextNum = lastNum + 1;
     }
@@ -94,17 +96,21 @@ const CreateAuditPlan = () => {
     try {
       // 1. Calculate details based on selected Planned Date
       const { ay_year } = getFinancialYearDetails(formData.planned_date);
-      const audit_id = await generateNextAuditId(formData.planned_date);
+      let audit_id = await generateNextAuditId(formData.planned_date);
+
+      // 🟢 HARDENING: Final Sanitization before Save
+      // Even though we generated it, this strips any invisible chars or spaces just in case.
+      audit_id = normalizeAuditID(audit_id);
 
       // 2. Insert into DB
       const { error } = await supabase
         .from('audit_plan')
         .insert([{
           audit_id: audit_id,
-          ay_year: ay_year, // Saving the Year column
-          prakalpa_name: formData.prakalpa_name,
-          functional_area: formData.functional_area,
-          coordinator_name: formData.coordinator_name,
+          ay_year: ay_year,
+          prakalpa_name: formData.prakalpa_name.trim(), // Trim inputs
+          functional_area: formData.functional_area.trim(),
+          coordinator_name: formData.coordinator_name.trim(),
           planned_date: formData.planned_date,
           status: 'Planned'
         }]);

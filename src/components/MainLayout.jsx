@@ -25,29 +25,29 @@ const MainLayout = ({ user, onLogout }) => {
   const isAdmin = currentUser.role === 'Admin' || currentUser.role === 'Super Admin';
   const isAuditee = currentUser.role === 'Auditee';
 
-  // 🟢 CORRECTED MENU ITEMS (Restored Original Paths)
+  // NAVIGATION MENU ITEMS
   const menuItems = [
     { 
       name: 'Dashboard', 
-      path: '/',  // Restored from '/dashboard' to '/'
+      path: '/', 
       icon: <LayoutDashboard size={20} />,
       visible: true 
     },
     { 
       name: 'Audit Planning', 
-      path: '/planning', // Restored from '/audit-planning'
+      path: '/planning', 
       icon: <FilePlus size={20} />,
       visible: true 
     },
     { 
       name: 'Scheduled Audits', 
-      path: '/scheduled', // Restored from '/scheduled-audits'
+      path: '/scheduled', 
       icon: <CalendarCheck size={20} />,
       visible: !isAuditee 
     },
     { 
       name: 'Open Reports', 
-      path: '/reports/open', // Restored from '/audit-reports'
+      path: '/reports/open', 
       icon: <FileText size={20} />,
       visible: true 
     },
@@ -61,25 +61,24 @@ const MainLayout = ({ user, onLogout }) => {
     // ADMIN SECTION
     {
       name: 'User Management',
-      path: '/admin/users', // Restored from '/user-management'
+      path: '/admin/users', 
       icon: <Users size={20} />,
       visible: isAdmin
     },
     {
       name: 'Prakalpas', 
-      path: '/admin/locations', // Restored from '/prakalpas'
+      path: '/admin/locations', 
       icon: <Map size={20} />,
       visible: isAdmin
     },
     {
       name: 'System Masters', 
-      path: '/admin/masters', // Restored from '/system-masters'
+      path: '/admin/masters', 
       icon: <Settings size={20} />,
       visible: isAdmin 
     }
   ];
 
-  // Helper to check if a route is active (Handles root '/' correctly)
   const isActive = (path) => {
     if (path === '/') return location.pathname === '/';
     return location.pathname.startsWith(path);
@@ -118,25 +117,28 @@ const MainLayout = ({ user, onLogout }) => {
         md:translate-x-0 flex flex-col h-full pt-16 md:pt-0 shadow-xl md:shadow-none
       `}>
         
-        {/* BRANDING HEADER */}
-        <div className="h-20 hidden md:flex items-center px-4 bg-gradient-to-r from-orange-700 to-red-700 shadow-md">
+        {/* 🟢 BRANDING HEADER (Clean White Theme) */}
+        <div className="h-24 hidden md:flex items-center px-4 border-b border-gray-200 bg-white">
            <div className="flex items-center gap-3">
+              {/* Logo Logic */}
               {!logoError ? (
                 <img 
                   src="/logo.png" 
                   alt="Logo" 
-                  className="h-10 w-auto bg-white/20 rounded p-1 backdrop-blur-sm shadow-sm"
+                  className="h-12 w-auto object-contain"
                   onError={() => setLogoError(true)}
                 />
               ) : (
-                <div className="p-1.5 bg-white/20 rounded backdrop-blur-sm">
-                   <ShieldCheck size={24} className="text-white" />
+                <div className="p-1.5 bg-orange-50 rounded-lg">
+                   <ShieldCheck size={28} className="text-orange-600" />
                 </div>
               )}
               
-              <div className="text-white">
-                <h1 className="font-bold text-lg tracking-tight leading-none">Pratibimba</h1>
-                <p className="text-[10px] text-orange-100 uppercase tracking-wider opacity-90 mt-0.5">Audit System</p>
+              <div>
+                <h1 className="font-bold text-xl text-gray-900 tracking-tight leading-none">Pratibimba</h1>
+                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wide mt-1 leading-snug">
+                  Internal Quality Audit <br/> Management System
+                </p>
               </div>
            </div>
         </div>

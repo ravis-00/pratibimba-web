@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  FileText, Search, RefreshCw, Eye, X, Printer, 
-  Download, Edit, Save, Plus, Trash2, CheckCircle, AlertCircle, ArrowLeft
+  FileText, Search, RefreshCw, Eye, X, 
+  Download, Edit, Save, Plus, Trash2, CheckCircle, ArrowLeft, Settings, Info
 } from 'lucide-react'; 
 import { supabase } from '../supabase';
 import { generateAuditReportPDF } from '../utils/printAuditReport';
+import { normalizeAuditID } from '../utils/idHelper';
 
 const OpenReports = () => {
   const [reports, setReports] = useState([]);
@@ -60,28 +61,24 @@ const OpenReports = () => {
   // 2. MODAL HANDLERS (VIEW & EDIT)
   // =========================
 
-  // OPEN VIEW MODAL (Fixed Sorting)
   const handleViewReport = async (audit) => {
     setSelectedReport(audit);
     setIsEditing(false); 
     setLoadingDetails(true);
     try {
-        // 🟢 FIX: Removed .order('id') which caused the crash. 
-        // Now sorting by 'created_at' if available, or just fetching all.
+        const cleanId = normalizeAuditID(audit.audit_id);
+
         const { data, error } = await supabase
             .from('audit_observations')
             .select('*')
-            .eq('audit_id', audit.audit_id);
-            // .order('created_at', { ascending: true }); // Uncomment if you have created_at column
+            .eq('audit_id', cleanId);
 
         if (error) throw error;
 
-        // Optional: Manual Sort by Observation ID if needed
         const sortedData = (data || []).sort((a, b) => 
             (a.observation_id || "").localeCompare(b.observation_id || "")
         );
 
-        console.log("Fetched Observations:", sortedData); // 🟢 Debug Log
         setReportDetails({ ...audit, observations: sortedData });
     } catch (e) { 
         console.error("Fetch Error:", e); 
@@ -91,15 +88,12 @@ const OpenReports = () => {
     }
   };
 
-  // SWITCH TO EDIT MODE
   const handleStartEdit = () => {
-      // Deep copy to allow editing without affecting view state immediately
       const buffer = reportDetails.observations.map(o => ({...o}));
       setEditObservations(buffer);
       setIsEditing(true);
   };
 
-  // CANCEL EDIT
   const handleCancelEdit = () => {
       setIsEditing(false);
       setEditObservations([]);
@@ -109,14 +103,14 @@ const OpenReports = () => {
   // 3. EDIT LOGIC (CRUD)
   // =========================
 
-  // Add New Observation Row
   const handleAddObservation = () => {
+      const cleanId = normalizeAuditID(selectedReport.audit_id);
+
       setEditObservations([
           ...editObservations, 
           { 
-              // Temp ID for UI key
               temp_ui_id: `new-${Date.now()}`, 
-              audit_id: selectedReport.audit_id,
+              audit_id: cleanId, 
               type: 'Opportunity for Improvement (OFI)', 
               observation_text: '', 
               functional_area: selectedReport.functional_area,
@@ -125,14 +119,12 @@ const OpenReports = () => {
       ]);
   };
 
-  // Delete Row
   const handleDeleteObservation = async (index) => {
       const obs = editObservations[index];
       
       if (!obs.isNew) {
           if(!window.confirm("Delete this observation permanently?")) return;
           
-          // 🟢 FIX: Handle deletion by 'id' OR 'observation_id'
           let query = supabase.from('audit_observations').delete();
           
           if (obs.id) {
@@ -152,31 +144,28 @@ const OpenReports = () => {
       setEditObservations(updated);
   };
 
-  // Update Field
   const handleObsChange = (index, field, value) => {
       const updated = [...editObservations];
       updated[index][field] = value;
       setEditObservations(updated);
   };
 
-  // SAVE CHANGES (Fixed Update Logic)
   const handleSaveChanges = async () => {
     setSaving(true);
     try {
         const updates = editObservations.map(async (obs) => {
             if (obs.isNew) {
-                // Remove temp UI props before sending to DB
+                const cleanId = normalizeAuditID(selectedReport.audit_id);
                 const { temp_ui_id, isNew, id, ...payload } = obs; 
+                payload.audit_id = cleanId;
                 return supabase.from('audit_observations').insert([payload]);
             } else {
-                // Prepare Payload
                 const payload = { 
                     observation_text: obs.observation_text,
                     type: obs.type,
                     functional_area: obs.functional_area
                 };
 
-                // 🟢 FIX: Update using the correct Primary Key
                 if (obs.id) {
                     return supabase.from('audit_observations').update(payload).eq('id', obs.id);
                 } else if (obs.observation_id) {
@@ -187,11 +176,11 @@ const OpenReports = () => {
 
         await Promise.all(updates);
 
-        // Refresh Data
+        const cleanId = normalizeAuditID(selectedReport.audit_id);
         const { data } = await supabase
             .from('audit_observations')
             .select('*')
-            .eq('audit_id', selectedReport.audit_id);
+            .eq('audit_id', cleanId);
 
         const sortedData = (data || []).sort((a, b) => (a.observation_id || "").localeCompare(b.observation_id || ""));
         
@@ -223,7 +212,6 @@ const OpenReports = () => {
 
   const getReportRef = (id) => (id || "REF").replace("IQA", "IAR");
 
-  // ID Generator Logic (Matches PDF)
   const processObservations = (obsList, auditId) => {
     if (!obsList) return [];
     const reportRef = (auditId || "REF").replace("IQA", "IAR");
@@ -302,9 +290,10 @@ const OpenReports = () => {
                 <td className="px-6 py-4 font-mono font-bold text-green-700">{getReportRef(row.audit_id)}</td>
                 <td className="px-6 py-4 font-bold">{row.prakalpa_name}</td>
                 <td className="px-6 py-4">{formatDate(row.completion_date || row.schedule_end_date)}</td>
-                <td className="px-6 py-4 text-right flex justify-end gap-2">
-                    <button onClick={() => generateAuditReportPDF({ ...row, observations: [] })} className="flex items-center gap-1 px-3 py-1.5 border border-red-200 text-red-700 bg-red-50 rounded text-xs font-bold"><Download size={14}/> PDF</button>
-                    <button onClick={() => handleViewReport(row)} className="flex items-center gap-1 px-3 py-1.5 border border-blue-200 text-blue-700 bg-blue-50 rounded text-xs font-bold"><Eye size={14}/> View</button>
+                <td className="px-6 py-4 text-right">
+                    <button onClick={() => handleViewReport(row)} className="flex items-center gap-2 px-4 py-2 border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg text-xs font-bold transition-all shadow-sm">
+                        <Eye size={16}/> Manage Report
+                    </button>
                 </td>
               </tr>
             ))}
@@ -317,7 +306,7 @@ const OpenReports = () => {
         <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto backdrop-blur-sm flex justify-center items-start pt-10 pb-10 print:bg-white print:fixed print:inset-0 print:pt-0">
             <div className="bg-white w-full max-w-4xl shadow-2xl rounded-xl overflow-hidden print:shadow-none print:w-full print:max-w-none">
                 
-                {/* 1. MODAL HEADER */}
+                {/* MODAL HEADER */}
                 <div className={`${isEditing ? 'bg-orange-600' : 'bg-gray-800'} text-white px-6 py-4 flex justify-between items-center no-print transition-colors duration-300`}>
                     <h2 className="font-bold text-lg flex items-center gap-2">
                         {isEditing ? <><Edit size={20}/> Edit Findings</> : "Report Viewer"}
@@ -332,7 +321,6 @@ const OpenReports = () => {
                             </>
                         ) : (
                             <>
-                                {/* EDIT BUTTON (Only for Coordinator) */}
                                 {isCoordinator && (
                                     <button onClick={handleStartEdit} className="bg-orange-500 hover:bg-orange-400 px-3 py-1.5 rounded text-sm font-bold flex items-center gap-2">
                                         <Edit size={16}/> Edit Findings
@@ -347,14 +335,14 @@ const OpenReports = () => {
                     </div>
                 </div>
 
-                {/* 2. MODAL CONTENT */}
+                {/* MODAL CONTENT */}
                 <div className="p-10 min-h-[500px] print:p-0">
                     {loadingDetails || !reportDetails ? (
                         <div className="text-center p-10 text-gray-500">Loading Report Data...</div>
                     ) : (
                         <div className="space-y-8">
                             
-                            {/* --- HEADER SECTION (Visible in both modes) --- */}
+                            {/* HEADER SECTION */}
                             <div className="border-b-2 border-black pb-4 mb-6 flex justify-between items-end">
                                 <div>
                                     <h1 className="text-3xl font-bold text-gray-900 uppercase">Internal Quality Audit Report</h1>
@@ -367,7 +355,7 @@ const OpenReports = () => {
                                 </div>
                             </div>
 
-                            {/* --- METADATA GRID --- */}
+                            {/* METADATA GRID */}
                             <div className="grid grid-cols-2 gap-8 bg-gray-50 p-6 rounded-lg print:border print:bg-white">
                                 <div><h3 className="text-xs font-bold text-gray-400 uppercase">Location</h3><p className="font-bold text-gray-800">{selectedReport.prakalpa_name}</p></div>
                                 <div><h3 className="text-xs font-bold text-gray-400 uppercase">Functional Area</h3><p className="font-bold text-gray-800">{selectedReport.functional_area}</p></div>
@@ -375,9 +363,9 @@ const OpenReports = () => {
                                 <div><h3 className="text-xs font-bold text-gray-400 uppercase">Completed Date</h3><p className="text-gray-700">{formatDate(selectedReport.completion_date || selectedReport.schedule_end_date)}</p></div>
                             </div>
 
-                            {/* --- MODE SWITCHER CONTENT --- */}
+                            {/* MODE SWITCHER */}
                             {isEditing ? (
-                                // 🟢 EDIT MODE CONTENT
+                                // EDIT MODE CONTENT
                                 <div className="bg-orange-50 border border-orange-100 rounded-lg p-6">
                                     <div className="flex justify-between items-center mb-4">
                                         <h3 className="font-bold text-orange-800 flex items-center gap-2"><Edit size={18}/> Editing Observations</h3>
@@ -388,7 +376,6 @@ const OpenReports = () => {
 
                                     <div className="space-y-4">
                                         {editObservations.length === 0 && <p className="text-center text-gray-400 italic py-4">No observations found. Add one above.</p>}
-                                        
                                         {editObservations.map((obs, idx) => (
                                             <div key={obs.id || obs.temp_ui_id || idx} className="bg-white border rounded p-4 shadow-sm relative group">
                                                 <div className="flex justify-between mb-2">
@@ -409,7 +396,7 @@ const OpenReports = () => {
                                     </div>
                                 </div>
                             ) : (
-                                // 🟢 VIEW MODE CONTENT
+                                // VIEW MODE CONTENT
                                 <>
                                     {/* Executive Summary Cards */}
                                     <div>
@@ -435,8 +422,20 @@ const OpenReports = () => {
                                         })()}
                                     </div>
 
+                                    {/* 🟢 NEW: Action Mandate Instructions */}
+                                    <div className="mt-6 p-4 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-800 flex items-start gap-3">
+                                       <Info size={18} className="mt-0.5 shrink-0 text-blue-600"/>
+                                       <div className="leading-relaxed">
+                                          <strong>Action Mandate & Instructions:</strong>
+                                          <ul className="list-disc list-inside mt-1 space-y-1">
+                                              <li><strong>Non-Conformances (NC)</strong> must be closed within <strong>30 days</strong> of the report date.</li>
+                                              <li><strong>Opportunities for Improvement (OFI)</strong> must be addressed within <strong>60 days</strong> of the report date.</li>
+                                          </ul>
+                                       </div>
+                                    </div>
+
                                     {/* Detailed Findings Table */}
-                                    <div>
+                                    <div className="mt-8">
                                         <h3 className="font-bold text-gray-800 text-lg border-b mb-4">Detailed Findings</h3>
                                         {reportDetails.observations.length === 0 ? (
                                             <p className="text-gray-400 italic">No observations recorded.</p>
@@ -445,7 +444,7 @@ const OpenReports = () => {
                                                 <thead className="bg-gray-100 text-gray-700 uppercase font-bold text-xs">
                                                     <tr>
                                                         <th className="p-3 border w-32">Obs ID</th>
-                                                        <th className="p-3 border w-32">Type</th>
+                                                        <th className="p-3 border w-48">Type</th>
                                                         <th className="p-3 border">Observation</th>
                                                     </tr>
                                                 </thead>
@@ -453,7 +452,12 @@ const OpenReports = () => {
                                                     {processObservations(reportDetails.observations, selectedReport.audit_id).map((obs, i) => (
                                                         <tr key={i} className="hover:bg-gray-50">
                                                             <td className="p-3 border font-mono font-bold text-gray-500 whitespace-nowrap">{obs.displayId}</td>
-                                                            <td className="p-3 border"><span className={`px-2 py-1 rounded text-xs font-bold ${obs.badgeClass}`}>{obs.type ? obs.type.split(' ')[0] : '-'}</span></td>
+                                                            {/* 🟢 FIXED: Display Full Name for Opportunity */}
+                                                            <td className="p-3 border">
+                                                                <span className={`px-2 py-1 rounded text-xs font-bold ${obs.badgeClass}`}>
+                                                                    {obs.type && obs.type.includes('Opportunity') ? 'Opportunity for Improvement' : (obs.type ? obs.type.split(' ')[0] : '-')}
+                                                                </span>
+                                                            </td>
                                                             <td className="p-3 border text-gray-600 whitespace-pre-wrap">{obs.observation_text}</td>
                                                         </tr>
                                                     ))}

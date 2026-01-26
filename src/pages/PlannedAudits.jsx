@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Plus, Search, RefreshCw, Calendar, MapPin, User, Trash2,
   CalendarClock, Filter, X, ChevronLeft, ChevronRight,
-  Download, ArrowUpDown, ArrowUp, ArrowDown, Eye, Save, Archive, CheckSquare, Square, Clock, ListFilter, FileText, Printer, CheckCircle, PieChart, Layers, AlertCircle
+  Download, ArrowUpDown, ArrowUp, ArrowDown, Eye, Save, Archive, CheckSquare, Square, Clock, ListFilter, FileText, CheckCircle, PieChart, AlertCircle
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -31,7 +31,7 @@ const PlannedAudits = () => {
   const currentUser = JSON.parse(localStorage.getItem('user')) || { role: 'Guest', full_name: '', prakalpa_name: '' };
   const isAdmin = currentUser.role === 'Admin' || currentUser.role === 'Super Admin';
 
-  // CALCULATE CURRENT AY (e.g. "2025-26")
+  // CALCULATE CURRENT AY
   const getCurrentAY = () => {
     const d = new Date();
     const year = d.getFullYear();
@@ -48,7 +48,7 @@ const PlannedAudits = () => {
   const [masterAuditAreas, setMasterAuditAreas] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [toast, setToast] = useState(null); // Toast State
+  const [toast, setToast] = useState(null);
 
   // View Toggle State (Default = true, show only Planned)
   const [showPlannedOnly, setShowPlannedOnly] = useState(true);
@@ -74,7 +74,7 @@ const PlannedAudits = () => {
   const [editForm, setEditForm] = useState({
     schedule_start_date: "",
     schedule_end_date: "",
-    schedule_time: "9:30 to 5:30", // Default
+    schedule_time: "9:30 to 5:30",
     prakalpa_name: "", 
     functional_area: "",
     coordinator_name: "", 
@@ -119,31 +119,79 @@ const PlannedAudits = () => {
   const csvEscape = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
   const normalize = (str) => (str || '').toLowerCase().trim();
 
+  // 🟢 NEW: Report Logic Helpers (Matching OpenReports)
+  const getReportRef = (auditId) => (auditId || "REF").replace("IQA", "IAR");
+
+  const getCounts = (obsList) => {
+      if(!obsList) return { nc: 0, ofi: 0, gp: 0 };
+      let nc = 0, ofi = 0, gp = 0;
+      obsList.forEach(o => {
+          const t = (o.type || "").toLowerCase();
+          if(t.includes('non') || t.includes('nc')) nc++;
+          else if(t.includes('improvement') || t.includes('opportunity') || t.includes('ofi')) ofi++;
+          else if(t.includes('good') || t.includes('compliant') || t.includes('best')) gp++;
+      });
+      return { nc, ofi, gp };
+  };
+
+  const processObservations = (obsList, auditId) => {
+    if (!obsList) return [];
+    
+    // Calculate Base Report Ref (e.g. IQAN -> IARN)
+    const reportRef = (auditId || "REF").replace("IQA", "IAR");
+    
+    let trackingSeq = 0; // For NC/OFI
+    let gpSeq = 0;       // For GP
+
+    return obsList.map(obs => {
+        const t = (obs.type || "").toLowerCase();
+        let displayId = "";
+        let badgeClass = "bg-gray-100 text-gray-800";
+
+        // Check Type
+        const isNC = t.includes('non') || t.includes('nc');
+        const isOFI = t.includes('improvement') || t.includes('opportunity') || t.includes('ofi');
+        
+        if (isNC || isOFI) {
+            trackingSeq++;
+            displayId = `${reportRef}-${String(trackingSeq).padStart(2, '0')}`;
+            
+            if(isNC) badgeClass = "bg-red-100 text-red-800";
+            if(isOFI) badgeClass = "bg-blue-100 text-blue-800";
+        } else {
+            gpSeq++;
+            displayId = `GP-${String(gpSeq).padStart(2, '0')}`;
+            badgeClass = "bg-green-100 text-green-800";
+        }
+
+        return { ...obs, displayId, badgeClass };
+    });
+  };
+
   // =========================
   // 3. API ACTIONS
   // =========================
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. Fetch Years
+      // Fetch Years
       const { data: yearData } = await supabase.from('audit_plan').select('ay_year');
       if (yearData) {
         const years = [...new Set(yearData.map(y => y.ay_year).filter(Boolean))].sort().reverse();
         if (years.length > 0) setAvailableYears(years);
       }
 
-      // 2. Fetch Users
+      // Fetch Users
       const { data: userData } = await supabase.from('users').select('full_name, email, role, prakalpa_name').eq('status', 'Active');
       if (userData) setUsers(userData);
 
-      // 3. Fetch Master Audit Areas
+      // Fetch Master Audit Areas
       const { data: areaData } = await supabase.from('master_dropdowns').select('value, parent_value').eq('category', 'Audit Area').eq('status', 'Active');
       if (areaData) setMasterAuditAreas(areaData);
 
-      // 4. Fetch Plans with RBAC (Role Based Access Control)
+      // Fetch Plans with RBAC
       let query = supabase.from('audit_plan').select('*');
       
-      // 🟢 RBAC LOGIC
       if (!isAdmin) {
           const myName = currentUser.full_name || 'Unknown';
           const myLoc = currentUser.prakalpa_name || 'Unknown';
@@ -217,7 +265,7 @@ const PlannedAudits = () => {
     setEditForm({
         schedule_start_date: toInputDate(item.schedule_start_date || item.planned_date),
         schedule_end_date: toInputDate(item.schedule_end_date || item.planned_date),
-        schedule_time: item.schedule_time || "9:30 to 5:30", // Default to Full Day
+        schedule_time: item.schedule_time || "9:30 to 5:30",
         prakalpa_name: item.prakalpa_name || "", 
         functional_area: item.functional_area || "",
         coordinator_name: item.coordinator_name || "",
@@ -362,20 +410,6 @@ const PlannedAudits = () => {
     link.click();
   };
 
-  const getReportCounts = () => {
-    if (!reportData || !reportData.observations) return { nc: 0, ofi: 0, gp: 0 };
-    let nc = 0, ofi = 0, gp = 0;
-    reportData.observations.forEach(o => {
-        const type = (o.type || "").toLowerCase();
-        if (type.includes('non') || type.includes('nc')) nc++;
-        else if (type.includes('improvement') || type.includes('opportunity')) ofi++;
-        else if (type.includes('good') || type.includes('compliant')) gp++;
-    });
-    return { nc, ofi, gp };
-  };
-
-  const reportCounts = getReportCounts(); 
-
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20">
       
@@ -438,8 +472,8 @@ const PlannedAudits = () => {
            <div className="relative w-full xl:w-40">
              <Archive className="absolute left-3 top-3 text-gray-400" size={16} />
              <select className="w-full pl-9 pr-8 py-2.5 border rounded-lg font-bold text-blue-800 bg-blue-50 outline-none cursor-pointer" 
-                value={ayFilter} onChange={e => { setAyFilter(e.target.value); setCurrentPage(1); }}>
-                {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+               value={ayFilter} onChange={e => { setAyFilter(e.target.value); setCurrentPage(1); }}>
+               {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
              </select>
            </div>
            
@@ -681,77 +715,124 @@ const PlannedAudits = () => {
         </div>
       )}
 
-      {/* 🟢 REPORT VIEWER MODAL */}
+      {/* 🟢 REPORT VIEWER MODAL (MATCHES OPEN REPORTS) */}
       {reportData && (
         <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto backdrop-blur-sm flex justify-center items-start pt-10 pb-10">
           <div className="bg-white w-full max-w-4xl shadow-2xl rounded-xl overflow-hidden">
+            
+            {/* 1. Modal Header (NO PRINT/PDF BUTTONS) */}
             <div className="bg-gray-800 text-white px-6 py-4 flex justify-between items-center">
                 <h2 className="font-bold text-lg">Completed Audit Report</h2>
-                <div className="flex gap-3">
-                    <button onClick={() => window.print()} className="flex items-center gap-2 bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm"><Printer size={16}/> Print</button>
-                    <button onClick={() => setReportData(null)} className="text-gray-400 hover:text-white"><X size={24}/></button>
-                </div>
+                <button onClick={() => setReportData(null)} className="text-gray-400 hover:text-white transition">
+                    <X size={24}/>
+                </button>
             </div>
-            <div className="p-10 min-h-[400px]">
+
+            {/* 2. Modal Content */}
+            <div className="p-10 min-h-[500px]">
                 {loadingReport ? (
                     <div className="text-center p-10 text-gray-500">Loading Report...</div>
                 ) : (
-                    <div className="space-y-6">
-                        <h1 className="text-2xl font-bold uppercase border-b pb-2">Internal Audit Report</h1>
-                        <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded">
-                            <div><span className="font-bold text-xs text-gray-500 uppercase">Audit ID</span> <p>{reportData.audit_id}</p></div>
-                            <div><span className="font-bold text-xs text-gray-500 uppercase">Status</span> <p className="text-green-600 font-bold">COMPLETED</p></div>
-                            <div><span className="font-bold text-xs text-gray-500 uppercase">Location</span> <p>{reportData.prakalpa_name}</p></div>
-                            <div><span className="font-bold text-xs text-gray-500 uppercase">Functional Area</span> <p>{reportData.functional_area}</p></div>
+                    <div className="space-y-8">
+                        
+                        {/* Header Section */}
+                        <div className="border-b-2 border-black pb-4 mb-6 flex justify-between items-end">
+                            <div>
+                                <h1 className="text-3xl font-bold text-gray-900 uppercase tracking-wide">Internal Quality Audit Report</h1>
+                                <p className="text-gray-500 mt-1">Rashtrotthana Parishat • 2025-26</p>
+                                <p className="text-sm font-mono text-gray-600 mt-1">
+                                    Report Ref: <strong>{getReportRef(reportData.audit_id)}</strong>
+                                </p>
+                            </div>
+                            <div className="text-right">
+                                <div className="text-2xl font-mono font-bold text-gray-600">{reportData.audit_id}</div>
+                                <div className="text-sm text-green-600 font-bold uppercase border border-green-600 px-2 py-0.5 rounded inline-block mt-1">
+                                    COMPLETED
+                                </div>
+                            </div>
                         </div>
 
-                        {/* EXECUTIVE SUMMARY */}
+                        {/* Metadata Grid */}
+                        <div className="grid grid-cols-2 gap-8 bg-gray-50 p-6 rounded-lg">
+                            <div><h3 className="text-xs font-bold text-gray-400 uppercase mb-1">Location</h3><p className="text-lg font-bold text-gray-800">{reportData.prakalpa_name}</p></div>
+                            <div><h3 className="text-xs font-bold text-gray-400 uppercase mb-1">Functional Area</h3><p className="text-lg font-bold text-gray-800">{reportData.functional_area}</p></div>
+                            <div>
+                                <h3 className="text-xs font-bold text-gray-400 uppercase mb-1">Audit Team</h3>
+                                <p className="text-sm text-gray-700"><strong>Coordinator:</strong> {reportData.coordinator_name || 'N/A'}</p>
+                                <p className="text-sm text-gray-700"><strong>Auditors:</strong> {reportData.assigned_auditors || 'N/A'}</p>
+                            </div>
+                            <div>
+                                <h3 className="text-xs font-bold text-gray-400 uppercase mb-1">Timeline</h3>
+                                <p className="text-sm text-gray-700"><strong>Scheduled:</strong> {formatDate(reportData.schedule_start_date)}</p>
+                                <p className="text-sm text-gray-700"><strong>Completed:</strong> {formatDate(reportData.completion_date || reportData.schedule_end_date)}</p>
+                            </div>
+                        </div>
+
+                        {/* Executive Summary */}
                         <div>
                              <h3 className="font-bold text-gray-800 text-lg border-b mb-4">Executive Summary</h3>
-                             <div className="flex gap-4">
-                                 <div className="flex-1 bg-red-50 border border-red-100 p-4 rounded text-center">
-                                     <div className="text-3xl font-bold text-red-600">{reportCounts.nc}</div>
-                                     <div className="text-xs text-red-800 font-bold uppercase">Non-Conformances</div>
-                                 </div>
-                                 <div className="flex-1 bg-blue-50 border border-blue-100 p-4 rounded text-center">
-                                     <div className="text-3xl font-bold text-blue-600">{reportCounts.ofi}</div>
-                                     <div className="text-xs text-blue-800 font-bold uppercase">Opportunities (OFI)</div>
-                                 </div>
-                                 <div className="flex-1 bg-green-50 border border-green-100 p-4 rounded text-center">
-                                     <div className="text-3xl font-bold text-green-600">{reportCounts.gp}</div>
-                                     <div className="text-xs text-green-800 font-bold uppercase">Good Practices</div>
-                                 </div>
-                             </div>
+                             {(() => {
+                                 const counts = getCounts(reportData.observations);
+                                 return (
+                                     <div className="flex gap-4">
+                                         <div className="flex-1 bg-red-50 border border-red-100 p-4 rounded text-center">
+                                             <div className="text-3xl font-bold text-red-600">{counts.nc}</div>
+                                             <div className="text-xs text-red-800 font-bold uppercase">Non-Conformances</div>
+                                         </div>
+                                         <div className="flex-1 bg-blue-50 border border-blue-100 p-4 rounded text-center">
+                                             <div className="text-3xl font-bold text-blue-600">{counts.ofi}</div>
+                                             <div className="text-xs text-blue-800 font-bold uppercase">Opportunities (OFI)</div>
+                                         </div>
+                                         <div className="flex-1 bg-green-50 border border-green-100 p-4 rounded text-center">
+                                             <div className="text-3xl font-bold text-green-600">{counts.gp}</div>
+                                             <div className="text-xs text-green-800 font-bold uppercase">Good Practices</div>
+                                         </div>
+                                     </div>
+                                 );
+                             })()}
                         </div>
 
-                        {/* DETAILED FINDINGS */}
+                        {/* Detailed Findings Table (Consistent with OpenReports) */}
                         <div>
-                            <h3 className="font-bold mb-2">Detailed Findings</h3>
-                            {reportData.observations.length === 0 ? <p className="text-gray-400 italic">No specific observations recorded.</p> : (
-                                <table className="w-full border text-sm">
-                                    <thead className="bg-gray-100 uppercase text-xs font-bold text-gray-700">
-                                            <tr>
-                                                <th className="p-3 border w-32">Type</th>
-                                                <th className="p-3 border w-24">Area</th>
-                                                <th className="p-3 border">Observation</th>
-                                            </tr>
+                            <h3 className="font-bold text-gray-800 text-lg border-b mb-4">Detailed Findings</h3>
+                            {reportData.observations.length === 0 ? (
+                                <p className="text-gray-400 italic">No specific observations recorded.</p>
+                            ) : (
+                                <table className="w-full text-left text-sm border rounded overflow-hidden">
+                                    <thead className="bg-gray-100 text-gray-700 uppercase font-bold text-xs">
+                                        <tr>
+                                            <th className="p-3 border w-32">Obs ID</th>
+                                            <th className="p-3 border w-32">Type</th>
+                                            <th className="p-3 border w-1/4">Area</th>
+                                            <th className="p-3 border">Observation</th>
+                                        </tr>
                                     </thead>
                                     <tbody className="divide-y">
-                                            {reportData.observations.map((obs, i) => (
-                                                <tr key={i}>
-                                                    <td className="p-3 border">
-                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${obs.type.toLowerCase().includes('non') || obs.type.toLowerCase().includes('nc') ? 'bg-red-100 text-red-800' : (obs.type.toLowerCase().includes('improvement') || obs.type.toLowerCase().includes('opportunity') ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800')}`}>
-                                                            {obs.type.split(' ')[0]} 
-                                                        </span>
-                                                    </td>
-                                                    <td className="p-3 border font-medium text-gray-700">{obs.functional_area}</td>
-                                                    <td className="p-3 border text-gray-600 whitespace-pre-wrap">{obs.observation_text}</td>
-                                                </tr>
-                                            ))}
+                                        {processObservations(reportData.observations, reportData.audit_id).map((obs, i) => (
+                                            <tr key={i} className="hover:bg-gray-50">
+                                                <td className="p-3 border font-mono font-bold text-gray-500 whitespace-nowrap">
+                                                    {obs.displayId}
+                                                </td>
+                                                <td className="p-3 border">
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${obs.badgeClass}`}>
+                                                        {obs.type ? obs.type.split(' ')[0] : 'Note'} 
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 border font-medium text-gray-700">{obs.functional_area}</td>
+                                                <td className="p-3 border text-gray-600 whitespace-pre-wrap">{obs.observation_text}</td>
+                                            </tr>
+                                        ))}
                                     </tbody>
                                 </table>
                             )}
                         </div>
+
+                        {/* Footer */}
+                        <div className="mt-20 pt-10 border-t flex justify-between text-sm text-gray-500">
+                            <div><p>__________________________</p><p>Auditor Signature</p></div>
+                            <div><p>__________________________</p><p>Auditee Acknowledgment</p></div>
+                        </div>
+
                     </div>
                 )}
             </div>
