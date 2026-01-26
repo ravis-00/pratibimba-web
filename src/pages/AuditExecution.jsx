@@ -99,20 +99,34 @@ const AuditExecution = () => {
       }
   };
 
-  // 4. Finalize & Save to DB (HARDENED)
+  // 4. Finalize & Save to DB (HARDENED & UPDATED)
   const confirmFinalize = async () => {
       try {
           // 🟢 CRITICAL FIX: Normalize the Audit ID before saving
-          // This ensures findings NEVER get attached to "IQAN25087(a)"
           const cleanAuditId = normalizeAuditID(auditId);
 
           // Prepare records for DB
-          const recordsToInsert = observations.map(({ id, ...rest }, index) => ({
-              ...rest,
-              audit_id: cleanAuditId, // 🔒 Force Clean Link
-              // Generate standard ID: IQAN25087-OBS-01
-              observation_id: `${cleanAuditId}-OBS-${String(index + 1).padStart(2, '0')}`
-          }));
+          const recordsToInsert = observations.map(({ id, ...rest }, index) => {
+              // 🟢 NEW: Calculate Target Date based on Observation Type
+              const today = new Date();
+              const target = new Date(today);
+              const typeLower = (rest.type || '').toLowerCase();
+              
+              // Rule: NC = 30 Days, OFI = 60 Days
+              if (typeLower.includes('non') || typeLower.includes('nc')) {
+                  target.setDate(today.getDate() + 30);
+              } else {
+                  target.setDate(today.getDate() + 60);
+              }
+
+              return {
+                  ...rest,
+                  audit_id: cleanAuditId, // 🔒 Force Clean Link
+                  // Generate standard ID: IQAN25087-OBS-01
+                  observation_id: `${cleanAuditId}-OBS-${String(index + 1).padStart(2, '0')}`,
+                  target_date: target.toISOString().split('T')[0] // 🟢 Save Calculated Date
+              };
+          });
 
           // A. Save Observations FIRST
           if (recordsToInsert.length > 0) {

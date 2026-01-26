@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
-  Plus, Search, RefreshCw, Calendar, MapPin, User, Trash2,
+  Plus, Search, RefreshCw, Calendar, MapPin, User, Trash2, Edit,
   CalendarClock, Filter, X, ChevronLeft, ChevronRight,
   Download, ArrowUpDown, ArrowUp, ArrowDown, Eye, Save, Archive, CheckSquare, Square, Clock, ListFilter, FileText, CheckCircle, PieChart, AlertCircle
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 
-// 🟢 INTERNAL TOAST COMPONENT
+// Internal Toast Component
 const Toast = ({ message, type, onClose }) => {
   useEffect(() => {
     const timer = setTimeout(onClose, 3000);
@@ -27,7 +27,7 @@ const Toast = ({ message, type, onClose }) => {
 const PlannedAudits = () => {
   const navigate = useNavigate();
 
-  // 🟢 GET CURRENT USER
+  // GET CURRENT USER
   const currentUser = JSON.parse(localStorage.getItem('user')) || { role: 'Guest', full_name: '', prakalpa_name: '' };
   const isAdmin = currentUser.role === 'Admin' || currentUser.role === 'Super Admin';
 
@@ -46,11 +46,15 @@ const PlannedAudits = () => {
   const [plans, setPlans] = useState([]);
   const [users, setUsers] = useState([]); 
   const [masterAuditAreas, setMasterAuditAreas] = useState([]); 
+  
+  // State for Dropdowns
+  const [prakalpas, setPrakalpas] = useState([]);
+  const [functionalAreas, setFunctionalAreas] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState(null);
 
-  // View Toggle State (Default = true, show only Planned)
   const [showPlannedOnly, setShowPlannedOnly] = useState(true);
 
   // Filters & Pagination
@@ -66,11 +70,20 @@ const PlannedAudits = () => {
 
   // Modals
   const [viewData, setViewData] = useState(null);
-  const [editData, setEditData] = useState(null); 
+  const [editData, setEditData] = useState(null); // For SCHEDULING
   const [reportData, setReportData] = useState(null); 
   const [loadingReport, setLoadingReport] = useState(false);
 
-  // Form State
+  // Edit Plan Modal State
+  const [editPlanData, setEditPlanData] = useState(null);
+  const [planForm, setPlanForm] = useState({
+      prakalpa_name: "",
+      functional_area: "",
+      coordinator_name: "",
+      planned_date: ""
+  });
+
+  // Schedule Form State
   const [editForm, setEditForm] = useState({
     schedule_start_date: "",
     schedule_end_date: "",
@@ -117,9 +130,11 @@ const PlannedAudits = () => {
     }
   };
   const csvEscape = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
-  const normalize = (str) => (str || '').toLowerCase().trim();
+  
+  // 🟢 FIX: Improved Normalization for Matching
+  const normalize = (str) => (str || '').toLowerCase().trim().replace(/\s+/g, ' ');
 
-  // 🟢 NEW: Report Logic Helpers (Matching OpenReports)
+  // Report Logic Helpers
   const getReportRef = (auditId) => (auditId || "REF").replace("IQA", "IAR");
 
   const getCounts = (obsList) => {
@@ -136,26 +151,21 @@ const PlannedAudits = () => {
 
   const processObservations = (obsList, auditId) => {
     if (!obsList) return [];
-    
-    // Calculate Base Report Ref (e.g. IQAN -> IARN)
     const reportRef = (auditId || "REF").replace("IQA", "IAR");
-    
-    let trackingSeq = 0; // For NC/OFI
-    let gpSeq = 0;       // For GP
+    let trackingSeq = 0;
+    let gpSeq = 0;
 
     return obsList.map(obs => {
         const t = (obs.type || "").toLowerCase();
         let displayId = "";
         let badgeClass = "bg-gray-100 text-gray-800";
 
-        // Check Type
         const isNC = t.includes('non') || t.includes('nc');
         const isOFI = t.includes('improvement') || t.includes('opportunity') || t.includes('ofi');
         
         if (isNC || isOFI) {
             trackingSeq++;
             displayId = `${reportRef}-${String(trackingSeq).padStart(2, '0')}`;
-            
             if(isNC) badgeClass = "bg-red-100 text-red-800";
             if(isOFI) badgeClass = "bg-blue-100 text-blue-800";
         } else {
@@ -163,7 +173,6 @@ const PlannedAudits = () => {
             displayId = `GP-${String(gpSeq).padStart(2, '0')}`;
             badgeClass = "bg-green-100 text-green-800";
         }
-
         return { ...obs, displayId, badgeClass };
     });
   };
@@ -181,15 +190,21 @@ const PlannedAudits = () => {
         if (years.length > 0) setAvailableYears(years);
       }
 
-      // Fetch Users
+      // 🟢 FIX: Ensure Users are fetched with Location
       const { data: userData } = await supabase.from('users').select('full_name, email, role, prakalpa_name').eq('status', 'Active');
       if (userData) setUsers(userData);
 
-      // Fetch Master Audit Areas
-      const { data: areaData } = await supabase.from('master_dropdowns').select('value, parent_value').eq('category', 'Audit Area').eq('status', 'Active');
-      if (areaData) setMasterAuditAreas(areaData);
+      // Fetch Master Data
+      const { data: areaData } = await supabase.from('master_dropdowns').select('value, parent_value, category').eq('status', 'Active');
+      if (areaData) {
+          setMasterAuditAreas(areaData.filter(d => d.category === 'Audit Area'));
+          setFunctionalAreas(areaData.filter(d => d.category === 'Functional Area'));
+      }
 
-      // Fetch Plans with RBAC
+      const { data: prakalpaData } = await supabase.from('master_prakalpas').select('prakalpa_name').order('prakalpa_name');
+      if (prakalpaData) setPrakalpas(prakalpaData);
+
+      // Fetch Plans
       let query = supabase.from('audit_plan').select('*');
       
       if (!isAdmin) {
@@ -260,8 +275,19 @@ const PlannedAudits = () => {
       }
   };
 
+  // --- SCHEDULING LOGIC (Fixed for "null" values) ---
   const openScheduleModal = (item) => {
     setEditData(item);
+    
+    // 🟢 FIX: Handle "null" strings stored in DB
+    const safeAuditors = (item.assigned_auditors && String(item.assigned_auditors).toLowerCase() !== 'null') 
+        ? item.assigned_auditors 
+        : "";
+    
+    const safeAuditees = (item.assigned_auditees && String(item.assigned_auditees).toLowerCase() !== 'null') 
+        ? item.assigned_auditees.split(',').map(s=>s.trim()) 
+        : [];
+
     setEditForm({
         schedule_start_date: toInputDate(item.schedule_start_date || item.planned_date),
         schedule_end_date: toInputDate(item.schedule_end_date || item.planned_date),
@@ -270,8 +296,8 @@ const PlannedAudits = () => {
         functional_area: item.functional_area || "",
         coordinator_name: item.coordinator_name || "",
         selected_audit_areas: item.audit_areas ? item.audit_areas.split(',').map(s=>s.trim()) : [],
-        assigned_auditors: item.assigned_auditors || "", 
-        assigned_auditees: item.assigned_auditees ? item.assigned_auditees.split(',').map(s=>s.trim()) : [],
+        assigned_auditors: safeAuditors, 
+        assigned_auditees: safeAuditees,
         status: 'Scheduled' 
     });
   };
@@ -304,6 +330,39 @@ const PlannedAudits = () => {
     }
   };
 
+  // --- EDIT PLAN LOGIC ---
+  const openEditPlanModal = (item) => {
+      setEditPlanData(item);
+      setPlanForm({
+          prakalpa_name: item.prakalpa_name,
+          functional_area: item.functional_area,
+          coordinator_name: item.coordinator_name,
+          planned_date: toInputDate(item.planned_date)
+      });
+  };
+
+  const handleUpdatePlan = async (e) => {
+      e.preventDefault();
+      setSubmitting(true);
+      try {
+          const { error } = await supabase.from('audit_plan').update({
+              prakalpa_name: planForm.prakalpa_name,
+              functional_area: planForm.functional_area,
+              coordinator_name: planForm.coordinator_name,
+              planned_date: planForm.planned_date
+          }).eq('audit_id', editPlanData.audit_id);
+
+          if (error) throw error;
+          showToast("Audit Plan Updated Successfully!", "success");
+          setEditPlanData(null);
+          fetchData();
+      } catch (error) {
+          showToast("Update failed: " + error.message, "error");
+      } finally {
+          setSubmitting(false);
+      }
+  };
+
   const toggleList = (listKey, value) => {
     setEditForm(prev => {
         const list = prev[listKey] || [];
@@ -318,12 +377,23 @@ const PlannedAudits = () => {
     return masterAuditAreas.filter(item => normalize(item.parent_value) === parentArea);
   };
 
-  const getAuditeeOptions = () => users.filter(u => {
-      const r = normalize(u.role);
-      const isEligible = r.includes('auditee') || r.includes('coordinator');
-      const isLocationMatch = normalize(u.prakalpa_name) === normalize(editData?.prakalpa_name);
-      return isEligible && isLocationMatch;
-  }).sort((a,b) => (a.full_name || "").localeCompare(b.full_name || ""));
+  const getAuditeeOptions = () => {
+      // 🟢 FIX: Robust Location Matching
+      const targetLocation = normalize(editForm.prakalpa_name);
+
+      return users.filter(u => {
+          const r = normalize(u.role);
+          const isEligible = r.includes('auditee') || r.includes('coordinator');
+          
+          // Match logic: Exact match OR contains (handles "Yoga Kendra" vs "Yoga Kendra ")
+          const userLocation = normalize(u.prakalpa_name);
+          const isLocationMatch = userLocation === targetLocation || (targetLocation && userLocation.includes(targetLocation));
+
+          return isEligible && isLocationMatch;
+      }).sort((a,b) => (a.full_name || "").localeCompare(b.full_name || ""));
+  };
+
+  const getCoordinatorsList = () => users.filter(u => normalize(u.role).includes('coordinator'));
 
   // --- SORTING & RENDERING ---
   const uniqueStatuses = useMemo(() => [...new Set(plans.map(p => p.status).filter(Boolean))].sort(), [plans]);
@@ -544,11 +614,18 @@ const PlannedAudits = () => {
                         </button>
                     ) : (
                         <>
+                            {isAdmin && plan.status === 'Planned' && (
+                                <button onClick={() => openEditPlanModal(plan)} className="text-orange-500 hover:bg-orange-50 p-1.5 rounded border border-orange-100" title="Edit Plan Details">
+                                    <Edit size={16} />
+                                </button>
+                            )}
+
                             {(isAdmin || plan.coordinator_name === currentUser.full_name) && plan.status === 'Planned' && (
                                 <button onClick={() => openScheduleModal(plan)} className="text-blue-600 hover:bg-blue-50 p-1.5 rounded border border-blue-100" title="Schedule Audit">
                                     <CalendarClock size={16} />
                                 </button>
                             )}
+                            
                             <button onClick={() => setViewData(plan)} className="text-gray-500 hover:bg-gray-100 p-1.5 rounded border border-gray-100" title="View Details">
                                 <Eye size={16} />
                             </button>
@@ -566,7 +643,6 @@ const PlannedAudits = () => {
           </table>
         </div>
         
-        {/* PAGINATION */}
         {!loading && filteredPlans.length > 0 && (
             <div className="flex flex-col md:flex-row justify-between items-center px-6 py-4 border-t bg-gray-50">
                 <span className="text-sm text-gray-600 mb-2 md:mb-0">
@@ -581,7 +657,63 @@ const PlannedAudits = () => {
         )}
       </div>
 
-      {/* 🟢 SCHEDULING MODAL */}
+      {/* EDIT PLAN DETAILS MODAL */}
+      {editPlanData && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+              <div className="bg-orange-600 px-6 py-4 border-b flex justify-between items-center text-white rounded-t-xl">
+                 <h3 className="text-lg font-bold flex items-center gap-2"><Edit/> Edit Audit Plan</h3>
+                 <button onClick={() => setEditPlanData(null)}><X size={20} className="hover:text-orange-200"/></button>
+              </div>
+              
+              <form onSubmit={handleUpdatePlan} className="p-6 space-y-5">
+                 <div className="bg-orange-50 p-3 rounded text-sm text-orange-900 border border-orange-100 font-mono font-bold text-center">
+                    Editing Plan: {editPlanData.audit_id}
+                 </div>
+
+                 <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Prakalpa (Location)</label>
+                    <select required className="w-full border rounded p-2.5 bg-white" 
+                        value={planForm.prakalpa_name} onChange={e => setPlanForm({...planForm, prakalpa_name: e.target.value})}>
+                        {prakalpas.map((p, i) => <option key={i} value={p.prakalpa_name}>{p.prakalpa_name}</option>)}
+                    </select>
+                 </div>
+
+                 <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Functional Area</label>
+                    <select required className="w-full border rounded p-2.5 bg-white" 
+                        value={planForm.functional_area} onChange={e => setPlanForm({...planForm, functional_area: e.target.value})}>
+                        {functionalAreas.map((f, i) => <option key={i} value={f.value}>{f.value}</option>)}
+                    </select>
+                 </div>
+
+                 <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Coordinator</label>
+                    <select required className="w-full border rounded p-2.5 bg-white" 
+                        value={planForm.coordinator_name} onChange={e => setPlanForm({...planForm, coordinator_name: e.target.value})}>
+                        <option value="">Select Coordinator</option>
+                        {getCoordinatorsList().map((c, i) => <option key={i} value={c.full_name}>{c.full_name}</option>)}
+                    </select>
+                 </div>
+
+                 <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Planned Date</label>
+                    <input required type="date" className="w-full border rounded p-2.5" 
+                        value={planForm.planned_date} onChange={e => setPlanForm({...planForm, planned_date: e.target.value})} />
+                 </div>
+
+                 <div className="flex justify-end gap-2 pt-4 border-t">
+                    <button type="button" onClick={()=>setEditPlanData(null)} className="px-4 py-2 border rounded text-sm font-bold text-gray-600 hover:bg-gray-50">Cancel</button>
+                    <button type="submit" disabled={submitting} className="px-4 py-2 bg-orange-600 text-white rounded text-sm font-bold flex items-center gap-2 hover:bg-orange-700">
+                        {submitting ? "Saving..." : <><Save size={16}/> Update Plan</>}
+                    </button>
+                 </div>
+              </form>
+           </div>
+        </div>
+      )}
+
+      {/* SCHEDULING MODAL */}
       {editData && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
@@ -615,7 +747,6 @@ const PlannedAudits = () => {
                     </div>
                  </div>
 
-                 {/* 🟢 UPDATED TIME SLOT DROPDOWN */}
                  <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">Time Slot & Agenda</label>
                     <div className="relative">
@@ -673,7 +804,14 @@ const PlannedAudits = () => {
                  <div className="border rounded p-3">
                     <label className="block text-xs font-bold text-gray-500 mb-2">Assign Auditees (Only from {editData.prakalpa_name})</label>
                     <div className="max-h-24 overflow-y-auto space-y-1">
-                        {getAuditeeOptions().length === 0 && <p className="text-xs text-red-400">No auditees found in this location.</p>}
+                        {/* 🟢 NEW: Helpful "No Users" Message */}
+                        {getAuditeeOptions().length === 0 && (
+                            <p className="text-xs text-red-400 p-2">
+                                No users found for <strong>{editForm.prakalpa_name}</strong>. 
+                                <br/>Check "User Management" to ensure users are assigned to this location.
+                            </p>
+                        )}
+
                         {getAuditeeOptions().map((u,i) => (
                             <div key={i} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded" onClick={() => toggleList('assigned_auditees', u.full_name)}>
                                 {editForm.assigned_auditees.includes(u.full_name) ? <CheckSquare size={16} className="text-orange-600"/> : <Square size={16} className="text-gray-400"/>}
@@ -715,12 +853,11 @@ const PlannedAudits = () => {
         </div>
       )}
 
-      {/* 🟢 REPORT VIEWER MODAL (MATCHES OPEN REPORTS) */}
+      {/* REPORT VIEWER MODAL */}
       {reportData && (
         <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto backdrop-blur-sm flex justify-center items-start pt-10 pb-10">
           <div className="bg-white w-full max-w-4xl shadow-2xl rounded-xl overflow-hidden">
             
-            {/* 1. Modal Header (NO PRINT/PDF BUTTONS) */}
             <div className="bg-gray-800 text-white px-6 py-4 flex justify-between items-center">
                 <h2 className="font-bold text-lg">Completed Audit Report</h2>
                 <button onClick={() => setReportData(null)} className="text-gray-400 hover:text-white transition">
@@ -728,14 +865,11 @@ const PlannedAudits = () => {
                 </button>
             </div>
 
-            {/* 2. Modal Content */}
             <div className="p-10 min-h-[500px]">
                 {loadingReport ? (
                     <div className="text-center p-10 text-gray-500">Loading Report...</div>
                 ) : (
                     <div className="space-y-8">
-                        
-                        {/* Header Section */}
                         <div className="border-b-2 border-black pb-4 mb-6 flex justify-between items-end">
                             <div>
                                 <h1 className="text-3xl font-bold text-gray-900 uppercase tracking-wide">Internal Quality Audit Report</h1>
@@ -752,7 +886,6 @@ const PlannedAudits = () => {
                             </div>
                         </div>
 
-                        {/* Metadata Grid */}
                         <div className="grid grid-cols-2 gap-8 bg-gray-50 p-6 rounded-lg">
                             <div><h3 className="text-xs font-bold text-gray-400 uppercase mb-1">Location</h3><p className="text-lg font-bold text-gray-800">{reportData.prakalpa_name}</p></div>
                             <div><h3 className="text-xs font-bold text-gray-400 uppercase mb-1">Functional Area</h3><p className="text-lg font-bold text-gray-800">{reportData.functional_area}</p></div>
@@ -768,7 +901,6 @@ const PlannedAudits = () => {
                             </div>
                         </div>
 
-                        {/* Executive Summary */}
                         <div>
                              <h3 className="font-bold text-gray-800 text-lg border-b mb-4">Executive Summary</h3>
                              {(() => {
@@ -792,7 +924,6 @@ const PlannedAudits = () => {
                              })()}
                         </div>
 
-                        {/* Detailed Findings Table (Consistent with OpenReports) */}
                         <div>
                             <h3 className="font-bold text-gray-800 text-lg border-b mb-4">Detailed Findings</h3>
                             {reportData.observations.length === 0 ? (
@@ -800,12 +931,12 @@ const PlannedAudits = () => {
                             ) : (
                                 <table className="w-full text-left text-sm border rounded overflow-hidden">
                                     <thead className="bg-gray-100 text-gray-700 uppercase font-bold text-xs">
-                                        <tr>
-                                            <th className="p-3 border w-32">Obs ID</th>
-                                            <th className="p-3 border w-32">Type</th>
-                                            <th className="p-3 border w-1/4">Area</th>
-                                            <th className="p-3 border">Observation</th>
-                                        </tr>
+                                            <tr>
+                                                <th className="p-3 border w-32">Obs ID</th>
+                                                <th className="p-3 border w-32">Type</th>
+                                                <th className="p-3 border w-1/4">Area</th>
+                                                <th className="p-3 border">Observation</th>
+                                            </tr>
                                     </thead>
                                     <tbody className="divide-y">
                                         {processObservations(reportData.observations, reportData.audit_id).map((obs, i) => (
@@ -827,7 +958,6 @@ const PlannedAudits = () => {
                             )}
                         </div>
 
-                        {/* Footer */}
                         <div className="mt-20 pt-10 border-t flex justify-between text-sm text-gray-500">
                             <div><p>__________________________</p><p>Auditor Signature</p></div>
                             <div><p>__________________________</p><p>Auditee Acknowledgment</p></div>

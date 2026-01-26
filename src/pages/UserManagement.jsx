@@ -14,11 +14,11 @@ const UserManagement = () => {
   
   // Form State
   const [formData, setFormData] = useState({
-    id: null, 
+    original_email: null, // 🟢 ADDED: To track which user we are editing
     full_name: '', 
     email: '', 
     role: 'Auditee', 
-    prakalpa_name: '', // ✅ FIXED: Renamed to match DB column
+    prakalpa_name: '', 
     phone_number: '', 
     password: 'password123', 
     status: 'Active'
@@ -61,16 +61,18 @@ const UserManagement = () => {
     }
   };
 
-  // 2. Handle Delete
-  const handleDelete = async (id, name) => {
+  // 2. Handle Delete (Updated to use Email)
+  const handleDelete = async (email, name) => {
     if (!window.confirm(`Are you sure you want to delete ${name}?`)) return;
 
     try {
       setLoading(true);
-      const { error } = await supabase.from('users').delete().eq('id', id);
+      // 🟢 FIX: Delete by email, not id
+      const { error } = await supabase.from('users').delete().eq('email', email);
       if (error) throw error;
       
-      setUsers(users.filter(u => u.id !== id));
+      // Remove from local state
+      setUsers(users.filter(u => u.email !== email));
       alert("User deleted successfully.");
     } catch (error) {
       alert("Error deleting: " + error.message);
@@ -83,11 +85,11 @@ const UserManagement = () => {
   const handleAddNew = () => {
     setIsEditing(false);
     setFormData({
-      id: null,
+      original_email: null,
       full_name: '', 
       email: '', 
       role: 'Auditee', 
-      prakalpa_name: '', // ✅ FIXED
+      prakalpa_name: '', 
       phone_number: '', 
       password: 'password123', 
       status: 'Active'
@@ -99,11 +101,11 @@ const UserManagement = () => {
   const handleEdit = (user) => {
     setIsEditing(true);
     setFormData({
-      id: user.id, 
+      original_email: user.email, // 🟢 STORE ORIGINAL EMAIL for Lookup
       full_name: user.full_name,
       email: user.email,
       role: user.role,
-      prakalpa_name: user.prakalpa_name || '', // ✅ FIXED: Read from correct DB column
+      prakalpa_name: user.prakalpa_name || '', 
       phone_number: user.phone_number || '',
       password: user.password || '', 
       status: user.status || 'Active'
@@ -120,7 +122,7 @@ const UserManagement = () => {
       full_name: formData.full_name,
       email: formData.email,
       role: formData.role,
-      prakalpa_name: formData.prakalpa_name, // ✅ FIXED: Send correct column name
+      prakalpa_name: formData.prakalpa_name,
       phone_number: formData.phone_number,
       password: formData.password,
       status: formData.status
@@ -129,10 +131,11 @@ const UserManagement = () => {
     try {
       if (isEditing) {
         // UPDATE
+        // 🟢 FIX: Update using 'original_email' as the lookup key
         const { error } = await supabase
           .from('users')
           .update(payload)
-          .eq('id', formData.id);
+          .eq('email', formData.original_email);
 
         if (error) throw error;
         alert('User Updated Successfully!');
@@ -191,8 +194,9 @@ const UserManagement = () => {
               ) : users.length === 0 ? (
                 <tr><td colSpan="6" className="text-center py-10">No users found.</td></tr>
               ) : (
-                users.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50 transition">
+                users.map((user, index) => (
+                  // Using email as key since id might be missing
+                  <tr key={user.email || index} className="hover:bg-gray-50 transition">
                     <td className="px-6 py-4 font-medium text-gray-900">{user.full_name}</td>
                     <td className="px-6 py-4">{user.email}</td>
                     <td className="px-6 py-4">
@@ -204,7 +208,6 @@ const UserManagement = () => {
                       </span>
                     </td>
                     
-                    {/* ✅ Correctly displaying prakalpa_name */}
                     <td className="px-6 py-4">{user.prakalpa_name || '-'}</td>
                     
                     <td className="px-6 py-4">
@@ -218,7 +221,8 @@ const UserManagement = () => {
                       <button onClick={() => handleEdit(user)} className="text-blue-500 hover:bg-blue-50 p-2 rounded" title="Edit">
                         <Edit size={16} />
                       </button>
-                      <button onClick={() => handleDelete(user.id, user.full_name)} className="text-red-500 hover:bg-red-50 p-2 rounded" title="Delete">
+                      {/* 🟢 FIX: Pass email instead of id */}
+                      <button onClick={() => handleDelete(user.email, user.full_name)} className="text-red-500 hover:bg-red-50 p-2 rounded" title="Delete">
                         <Trash2 size={16} />
                       </button>
                     </td>
@@ -278,7 +282,7 @@ const UserManagement = () => {
                 <select 
                   className="w-full border rounded-lg px-3 py-2 bg-white"
                   value={formData.prakalpa_name} 
-                  onChange={e => setFormData({...formData, prakalpa_name: e.target.value})} // ✅ FIXED
+                  onChange={e => setFormData({...formData, prakalpa_name: e.target.value})}
                 >
                   <option value="">-- Select Prakalpa --</option>
                   {prakalpaOptions.map((p, i) => (

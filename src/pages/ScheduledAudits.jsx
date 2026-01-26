@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, MapPin, Users, Clock, Search, RefreshCw, Trash2, Edit, X, CheckSquare, Square, PlayCircle, UserCheck, User, Download } from 'lucide-react';
 import { useNavigate } from 'react-router-dom'; 
 import { supabase } from '../supabase';
-// 🟢 IMPORT THE PDF GENERATOR
 import { generateAuditSchedulePDF } from '../utils/printAuditSchedule';
 
 // Simple Toast Component
@@ -27,7 +26,7 @@ const ScheduledAudits = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // 🟢 1. GET CURRENT USER & ROLE
+  // 1. GET CURRENT USER & ROLE
   const currentUser = JSON.parse(localStorage.getItem('user')) || { role: 'Guest', full_name: '' };
   const isAdmin = currentUser.role === 'Admin' || currentUser.role === 'Super Admin';
 
@@ -53,6 +52,14 @@ const ScheduledAudits = () => {
   // 1. HELPERS
   // =========================
   
+  // 🟢 FIX: Robust Safe Render (Handles "null" string from DB)
+  const safeRender = (val) => {
+      if (!val) return '-';
+      const strVal = String(val).trim().toLowerCase();
+      if (strVal === 'null' || strVal === 'undefined' || strVal === '') return '-';
+      return val;
+  };
+
   const toInputDate = (dateString) => {
     if (!dateString) return "";
     try {
@@ -95,30 +102,35 @@ const ScheduledAudits = () => {
     try {
       setLoading(true);
       
-      // 🟢 2. RBAC QUERY FILTERING
+      // A. Fetch Audits
       let query = supabase
         .from('audit_plan')
         .select('*')
         .eq('status', 'Scheduled')
         .order('schedule_start_date', { ascending: true });
 
-      // If NOT Admin, only show audits assigned to this coordinator
       if (!isAdmin) {
           query = query.eq('coordinator_name', currentUser.full_name);
       }
 
       const { data: auditData, error: auditError } = await query;
-
       if (auditError) throw auditError;
 
+      const processedAudits = (auditData || []).map(a => ({
+          ...a,
+          prakalpa_name: a.prakalpa_name || "", 
+          functional_area: a.functional_area || "",
+          coordinator_name: a.coordinator_name || ""
+      }));
+      setAudits(processedAudits);
+
+      // B. Fetch Users (CRITICAL: Ensure prakalpa_name is fetched)
       const { data: userData, error: userError } = await supabase
         .from('users')
-        .select('full_name, email, role, prakalpa_name')
+        .select('full_name, email, role, prakalpa_name') // Must fetch location
         .eq('status', 'Active');
 
       if (userError) throw userError;
-
-      setAudits(auditData || []);
       setUsers(userData || []);
 
     } catch (error) {
@@ -137,12 +149,8 @@ const ScheduledAudits = () => {
   // 3. ACTIONS
   // =========================
 
-  // 🟢 NEW: HANDLE PDF DOWNLOAD
   const handleDownloadSchedule = async (audit) => {
-    // We create a copy so we can attach extra details (like prakalpa_type)
     let fullAuditDetails = { ...audit };
-    
-    // Attempt to fetch Prakalpa Type from master to decide Agenda (Full Day vs Half Day)
     try {
         if (!audit.prakalpa_type) {
             const { data } = await supabase
@@ -150,23 +158,19 @@ const ScheduledAudits = () => {
                 .select('prakalpa_type')
                 .eq('prakalpa_name', audit.prakalpa_name)
                 .single();
-            
             if (data) fullAuditDetails.prakalpa_type = data.prakalpa_type;
         }
     } catch (err) {
-        console.warn("Could not fetch prakalpa type, using default agenda", err);
+        console.warn("Could not fetch prakalpa type", err);
     }
-
     generateAuditSchedulePDF(fullAuditDetails);
   };
 
   const handleDelete = async (auditId) => {
-    // 🟢 3. RBAC DELETE PROTECTION
     if (!isAdmin) {
         showToast("Permission Denied: Only Admins can delete audits.", 'error');
         return;
     }
-
     if (!window.confirm(`Are you sure you want to delete Audit ${auditId}? This cannot be undone.`)) return;
     
     try {
@@ -178,16 +182,27 @@ const ScheduledAudits = () => {
   };
 
   const handleEditSchedule = (row) => {
+    // 🟢 FIX: Handle "null" string in auditees list
+    let parsedAuditees = [];
+    const rawAuditees = row.assigned_auditees;
+    if (rawAuditees && String(rawAuditees).toLowerCase() !== 'null' && String(rawAuditees).trim() !== '') {
+        parsedAuditees = rawAuditees.split(',').map(s => s.trim());
+    }
+
+    // 🟢 FIX: Handle "null" string in time/auditors
+    const safeTime = (row.schedule_time && String(row.schedule_time).toLowerCase() !== 'null') ? row.schedule_time : '9:30 to 5:30';
+    const safeAuditors = (row.assigned_auditors && String(row.assigned_auditors).toLowerCase() !== 'null') ? row.assigned_auditors : '';
+
     setScheduleData({
       audit_id: row.audit_id,
-      prakalpa_name: row.prakalpa_name,
-      functional_area: row.functional_area,
+      prakalpa_name: row.prakalpa_name || '', 
+      functional_area: row.functional_area || '',
       coordinator_name: row.coordinator_name || '', 
       schedule_start_date: toInputDate(row.schedule_start_date || row.planned_date),
       schedule_end_date: toInputDate(row.schedule_end_date || row.planned_date),
-      schedule_time: row.schedule_time || '',
-      assigned_auditors: row.assigned_auditors || '',
-      assigned_auditees: row.assigned_auditees ? row.assigned_auditees.split(',').map(s => s.trim()) : []
+      schedule_time: safeTime,
+      assigned_auditors: safeAuditors,
+      assigned_auditees: parsedAuditees
     });
     setIsRescheduleModalOpen(true);
   };
@@ -219,22 +234,19 @@ const ScheduledAudits = () => {
 
   // --- FILTER HELPERS ---
 
-  const getAuditorOptions = () => {
-    return users.filter(u => {
-        const r = normalize(u.role);
-        return r.includes('coordinator') || r.includes('auditor') || r.includes('admin');
-    }).sort((a, b) => (a.full_name || "").localeCompare(b.full_name || ""));
-  };
-
   const getAuditeeOptions = () => {
+      // 🟢 FIX: Robust Matching Logic
       const targetName = normalize(scheduleData.prakalpa_name);
 
       return users.filter(u => {
           const r = normalize(u.role);
+          // 1. Must be Auditee or Coordinator
           const isEligible = r.includes('auditee') || r.includes('coordinator'); 
           
+          // 2. Must Match Location (Handle partial matches / spaces)
           const userPrakalpa = normalize(u.prakalpa_name);
-          const matches = userPrakalpa === targetName;
+          // Check if names roughly match
+          const matches = userPrakalpa === targetName || (targetName && userPrakalpa.includes(targetName));
 
           return isEligible && matches; 
       }).sort((a, b) => (a.full_name || "").localeCompare(b.full_name || ""));
@@ -318,7 +330,8 @@ const ScheduledAudits = () => {
                   <div className="flex flex-col">
                     <span className="font-bold text-gray-700">{formatDateRange(row.schedule_start_date, row.schedule_end_date)}</span>
                     <span className="text-xs text-gray-400 flex items-center gap-1">
-                        <Clock size={10}/> {row.schedule_time || 'All Day'}
+                        {/* 🟢 FIX: Clean rendering of Time */}
+                        <Clock size={10}/> {safeRender(row.schedule_time).replace('-', 'All Day')}
                     </span>
                   </div>
                 </td>
@@ -327,17 +340,19 @@ const ScheduledAudits = () => {
                   <div className="flex flex-col gap-2">
                       <div className="text-xs text-gray-700">
                         <strong className="flex items-center gap-1 text-gray-500"><UserCheck size={12} className="text-green-600"/> Coordinator:</strong>
-                        <div className="pl-4 font-medium">{row.coordinator_name || '-'}</div>
+                        <div className="pl-4 font-medium">{safeRender(row.coordinator_name)}</div>
                       </div>
                       
                       <div className="text-xs text-gray-700">
                         <strong className="flex items-center gap-1 text-gray-500"><Users size={12} className="text-blue-500"/> Auditors:</strong>
-                        <div className="pl-4">{row.assigned_auditors || '-'}</div>
+                        {/* 🟢 FIX: Clean rendering of Auditors */}
+                        <div className="pl-4">{safeRender(row.assigned_auditors)}</div>
                       </div>
                       
                       <div className="text-xs text-gray-700">
                         <strong className="flex items-center gap-1 text-gray-500"><User size={12} className="text-orange-500"/> Auditees:</strong>
-                        <div className="pl-4">{row.assigned_auditees || '-'}</div>
+                        {/* 🟢 FIX: Clean rendering of Auditees */}
+                        <div className="pl-4">{safeRender(row.assigned_auditees)}</div>
                       </div>
                   </div>
                 </td>
@@ -345,7 +360,6 @@ const ScheduledAudits = () => {
                 <td className="px-6 py-4 text-right align-top">
                     <div className="flex flex-col gap-2 items-end">
                         <div className="flex gap-2 w-full">
-                            {/* 🟢 PDF BUTTON */}
                             <button 
                                 onClick={() => handleDownloadSchedule(row)}
                                 className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-100 text-xs font-bold transition"
@@ -366,7 +380,6 @@ const ScheduledAudits = () => {
                                 <Edit size={14} />
                             </button>
                             
-                            {/* Only Admins see Delete Button */}
                             {isAdmin && (
                                 <button onClick={() => handleDelete(row.audit_id)} className="text-red-400 hover:bg-red-50 p-1.5 rounded border" title="Delete">
                                     <Trash2 size={14} />
@@ -387,7 +400,7 @@ const ScheduledAudits = () => {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
               <h3 className="font-bold text-lg text-purple-700 flex items-center gap-2">
-                 <Edit size={20}/> Reschedule ({scheduleData.audit_id})
+                  <Edit size={20}/> Reschedule ({scheduleData.audit_id})
               </h3>
               <button onClick={() => setIsRescheduleModalOpen(false)}><X size={20} className="text-gray-400 hover:text-red-500"/></button>
             </div>
@@ -404,17 +417,16 @@ const ScheduledAudits = () => {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                 <div>
+                  <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">Start Date</label>
                     <input type="date" required className="w-full border rounded px-3 py-2" value={scheduleData.schedule_start_date} onChange={e => setScheduleData({...scheduleData, schedule_start_date: e.target.value})} />
-                 </div>
-                 <div>
+                  </div>
+                  <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">End Date</label>
                     <input type="date" required className="w-full border rounded px-3 py-2" min={scheduleData.schedule_start_date} value={scheduleData.schedule_end_date} onChange={e => setScheduleData({...scheduleData, schedule_end_date: e.target.value})} />
-                 </div>
+                  </div>
               </div>
 
-              {/* 🟢 ADDED DROPDOWN FOR TIME SLOT IN MODAL TOO */}
               <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">Audit Time & Agenda</label>
                   <select 
@@ -442,7 +454,15 @@ const ScheduledAudits = () => {
               <div className="border rounded p-3 bg-white">
                   <label className="block text-xs font-bold text-gray-500 mb-2">Assign Auditees (Matching Location)</label>
                   <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {getAuditeeOptions().length === 0 && <p className="text-xs text-red-400 p-2">No users found for {scheduleData.prakalpa_name}.</p>}
+                    {/* 🟢 NEW: Helpful "No Users" Message */}
+                    {getAuditeeOptions().length === 0 && (
+                        <div className="p-3 bg-red-50 text-red-600 text-xs rounded">
+                            <p className="font-bold">No auditees found!</p>
+                            <p>Looking for users in: <strong>{scheduleData.prakalpa_name}</strong></p>
+                            <p className="mt-1">Check "User Management" to ensure users are assigned to this location.</p>
+                        </div>
+                    )}
+                    
                     {getAuditeeOptions().map((user, i) => {
                       const isSelected = scheduleData.assigned_auditees.includes(user.full_name);
                       return (

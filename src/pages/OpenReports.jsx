@@ -153,17 +153,35 @@ const OpenReports = () => {
   const handleSaveChanges = async () => {
     setSaving(true);
     try {
+        // 🟢 CALCULATION BASE: Use the original Report Date to keep timelines consistent
+        // If undefined, default to today.
+        const baseDateStr = selectedReport.completion_date || selectedReport.schedule_end_date || new Date().toISOString();
+        const baseDate = new Date(baseDateStr);
+
         const updates = editObservations.map(async (obs) => {
+            // 🟢 LOGIC: Calculate Target Date (30 days NC / 60 days OFI)
+            const target = new Date(baseDate); // Clone report date
+            const typeLower = (obs.type || '').toLowerCase();
+            
+            if (typeLower.includes('non') || typeLower.includes('nc')) {
+                target.setDate(baseDate.getDate() + 30);
+            } else {
+                target.setDate(baseDate.getDate() + 60);
+            }
+            const targetDateStr = target.toISOString().split('T')[0];
+
             if (obs.isNew) {
                 const cleanId = normalizeAuditID(selectedReport.audit_id);
                 const { temp_ui_id, isNew, id, ...payload } = obs; 
                 payload.audit_id = cleanId;
+                payload.target_date = targetDateStr; // 🟢 Save Target
                 return supabase.from('audit_observations').insert([payload]);
             } else {
                 const payload = { 
                     observation_text: obs.observation_text,
                     type: obs.type,
-                    functional_area: obs.functional_area
+                    functional_area: obs.functional_area,
+                    target_date: targetDateStr // 🟢 Update Target
                 };
 
                 if (obs.id) {
@@ -208,6 +226,23 @@ const OpenReports = () => {
         const year = d.getFullYear();
         return `${day}-${month}-${year}`;
     } catch (e) { return dateVal; }
+  };
+
+  // 🟢 Helper to calculate display deadlines
+  const getDeadlines = (dateStr) => {
+      if (!dateStr) return { nc: 'N/A', ofi: 'N/A' };
+      try {
+          const d = new Date(dateStr);
+          if (isNaN(d.getTime())) return { nc: 'N/A', ofi: 'N/A' };
+          
+          const ncDate = new Date(d); ncDate.setDate(d.getDate() + 30);
+          const ofiDate = new Date(d); ofiDate.setDate(d.getDate() + 60);
+          
+          return { 
+              nc: formatDate(ncDate), 
+              ofi: formatDate(ofiDate) 
+          };
+      } catch (e) { return { nc: 'N/A', ofi: 'N/A' }; }
   };
 
   const getReportRef = (id) => (id || "REF").replace("IQA", "IAR");
@@ -376,6 +411,7 @@ const OpenReports = () => {
 
                                     <div className="space-y-4">
                                         {editObservations.length === 0 && <p className="text-center text-gray-400 italic py-4">No observations found. Add one above.</p>}
+                                        
                                         {editObservations.map((obs, idx) => (
                                             <div key={obs.id || obs.temp_ui_id || idx} className="bg-white border rounded p-4 shadow-sm relative group">
                                                 <div className="flex justify-between mb-2">
@@ -425,13 +461,19 @@ const OpenReports = () => {
                                     {/* 🟢 NEW: Action Mandate Instructions */}
                                     <div className="mt-6 p-4 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-800 flex items-start gap-3">
                                        <Info size={18} className="mt-0.5 shrink-0 text-blue-600"/>
-                                       <div className="leading-relaxed">
-                                          <strong>Action Mandate & Instructions:</strong>
-                                          <ul className="list-disc list-inside mt-1 space-y-1">
-                                              <li><strong>Non-Conformances (NC)</strong> must be closed within <strong>30 days</strong> of the report date.</li>
-                                              <li><strong>Opportunities for Improvement (OFI)</strong> must be addressed within <strong>60 days</strong> of the report date.</li>
-                                          </ul>
-                                       </div>
+                                       {(() => {
+                                           // Calculate Deadlines for Display
+                                           const { nc, ofi } = getDeadlines(selectedReport.completion_date || selectedReport.schedule_end_date);
+                                           return (
+                                               <div className="leading-relaxed">
+                                                  <strong>Action Mandate & Instructions:</strong>
+                                                  <ul className="list-disc list-inside mt-1 space-y-1">
+                                                      <li><strong>Non-Conformances (NC)</strong> must be closed within <strong>30 days</strong> ({nc}).</li>
+                                                      <li><strong>Opportunities for Improvement (OFI)</strong> must be addressed within <strong>60 days</strong> ({ofi}).</li>
+                                                  </ul>
+                                               </div>
+                                           );
+                                       })()}
                                     </div>
 
                                     {/* Detailed Findings Table */}
@@ -452,7 +494,6 @@ const OpenReports = () => {
                                                     {processObservations(reportDetails.observations, selectedReport.audit_id).map((obs, i) => (
                                                         <tr key={i} className="hover:bg-gray-50">
                                                             <td className="p-3 border font-mono font-bold text-gray-500 whitespace-nowrap">{obs.displayId}</td>
-                                                            {/* 🟢 FIXED: Display Full Name for Opportunity */}
                                                             <td className="p-3 border">
                                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${obs.badgeClass}`}>
                                                                     {obs.type && obs.type.includes('Opportunity') ? 'Opportunity for Improvement' : (obs.type ? obs.type.split(' ')[0] : '-')}
